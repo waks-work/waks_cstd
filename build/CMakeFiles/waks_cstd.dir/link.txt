@@ -1,0 +1,2 @@
+/usr/bin/ar qc libwaks_cstd.a CMakeFiles/waks_cstd.dir/src/main.c.o
+/usr/bin/ranlib libwaks_cstd.a

@@ -1,0 +1,4 @@
+/home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/build/CMakeFiles/waks_cstd.dir
+/home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/build/CMakeFiles/waks_test.dir
+/home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/build/CMakeFiles/edit_cache.dir
+/home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/build/CMakeFiles/rebuild_cache.dir

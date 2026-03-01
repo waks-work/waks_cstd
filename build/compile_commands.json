@@ -1,0 +1,14 @@
+[
+{
+  "directory": "/home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/build",
+  "command": "/usr/bin/cc  -I/home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/include -std=gnu11 -Wall -Wextra -Wpedantic -Wshadow -Wpointer-arith -Wcast-align -Wmissing-prototypes -Wstrict-prototypes -o CMakeFiles/waks_cstd.dir/src/main.c.o -c /home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/src/main.c",
+  "file": "/home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/src/main.c",
+  "output": "CMakeFiles/waks_cstd.dir/src/main.c.o"
+},
+{
+  "directory": "/home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/build",
+  "command": "/usr/bin/cc  -I/home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/include -std=gnu11 -Wall -Wextra -Wpedantic -Wshadow -Wpointer-arith -Wcast-align -Wmissing-prototypes -Wstrict-prototypes -o CMakeFiles/waks_test.dir/src/main.c.o -c /home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/src/main.c",
+  "file": "/home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/src/main.c",
+  "output": "CMakeFiles/waks_test.dir/src/main.c.o"
+}
+]

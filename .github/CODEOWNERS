@@ -1,0 +1,10 @@
+# Default owners
+* @waks-work
+
+# Core modules (update these per project)
+/src/ @waks-work
+/docs/ @waks-work
+/.github/ @waks-work
+
+# Fallback for solo development
+* @waks-work

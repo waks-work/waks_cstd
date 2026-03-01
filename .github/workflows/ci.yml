@@ -1,0 +1,41 @@
+name: waks_cstd_ci
+
+on: [push, pull_request]
+
+jobs:
+  # 1. The Core C Build (Hosted Mode)
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Build Tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake valgrind
+
+      - name: Configure and Build
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DWAKS_FREESTANDING=OFF
+          make
+
+      - name: Run Tests
+        run: ./build/waks_test
+
+      - name: Memory Leak Check (The "Old Money" Safety)
+        run: valgrind --leak-check=full --error-exitcode=1 ./build/waks_test
+
+  # 2. The Bare-Metal Check (Freestanding Mode)
+  freestanding-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib cmake
+      
+      - name: Verify OS Compatibility
+        run: |
+          mkdir build_os
+          cd build_os
+          cmake .. -DWAKS_FREESTANDING=ON
+          make

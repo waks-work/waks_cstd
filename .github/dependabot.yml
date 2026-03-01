@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Maintain GitHub Actions (Checkouts, Toolchains, etc.)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly" 
+      labels:
+      - "ci"
+      - "dependencies"
+    groups:
+      actions:
+        patterns:
+          - "*"

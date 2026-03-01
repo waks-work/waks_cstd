@@ -1,0 +1,1 @@
+/usr/bin/cc -Wl,--dependency-file=CMakeFiles/waks_test.dir/link.d CMakeFiles/waks_test.dir/src/main.c.o -o waks_test  libwaks_cstd.a

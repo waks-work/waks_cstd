@@ -1,0 +1,27 @@
+# Append to .gitignore for your stack
+
+# Rust
+/target/
+**/*.rs.bk
+
+# C/C++
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.obj
+*.lib
+
+# TypeScript/Node.js
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+.python-version
+
+# Lua (minimal)
+*.luac
