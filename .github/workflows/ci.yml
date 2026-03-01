@@ -22,7 +22,7 @@ jobs:
       - name: Run Tests
         run: ./build/waks_test
 
-      - name: Memory Leak Check (The "Old Money" Safety)
+      - name: Memory Leak Check
         run: valgrind --leak-check=full --error-exitcode=1 ./build/waks_test
 
   # 2. The Bare-Metal Check (Freestanding Mode)

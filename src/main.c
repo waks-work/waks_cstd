@@ -1,7 +1,7 @@
-#include <stdio.h>
+#include <io.h>
 
 int main(void)
 {
-    printf("Hello, World guys");
+    puts("Hello, World guys");
     return 0;
 }

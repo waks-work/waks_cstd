@@ -2,28 +2,24 @@
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+RED='\033[0;31m'
+NC='\033[0m'
 
-echo -e "${BLUE} waks_cstd system watcher has started... ${NC}"
+echo -e "${BLUE} waks_cstd system watcher started... ${NC}"
 
 run_build() {
   clear
-  echo -e "${BLUE} Rebuilding waks_cstd... ${NC}"
+  echo -e "${BLUE}🔨 Rebuilding waks_cstd library...${NC}"
   
-  mkdir -p build 
-  cd build
-
-  if cmake .. && make; then
-        echo -e "${GREEN}Build Successful! Executing Tests...${NC}"
-        ./waks_test
+  # This will produce the .a file that mini_os needs.
+  if zig build; then
+        echo -e "${GREEN} Library Build Successful!${NC}"
   else
-        echo -e "\033[0;31m Build Failed. Check the logs above.${NC}"
+        echo -e "${RED} Build Failed. Check src/ or build.zig${NC}"
   fi
-  cd ..
 }
 
 export -f run_build
 
-# Use 'find' to track all .c and .h files, then pipe to 'entr'
-# The '-r' flag restarts the process if new files are added
-find src include -name "*.c" -o -name "*.h" | entr -r bash -c run_build
+# Watch C files, Headers, and the Build script itself
+find src include build.zig -name "*.c" -o -name "*.h" -o -name "*.zig" | entr -r bash -c run_build

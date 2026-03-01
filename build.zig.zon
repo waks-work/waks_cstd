@@ -1,0 +1,11 @@
+.{
+    .fingerprint = 0xae66b2aa27a84894,
+    .name = .waks_cstd,
+    .version = "0.1.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "include",
+    },
+}

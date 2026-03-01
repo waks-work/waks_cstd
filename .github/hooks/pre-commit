@@ -30,4 +30,4 @@ cmake .. -DWAKS_FREESTANDING=OFF > /dev/null
 make > /dev/null
 cd ..
 
-echo "✅ Pre-commit checks passed! Silicon-ready."
+echo "✅ Pre-commit checks passed!"
