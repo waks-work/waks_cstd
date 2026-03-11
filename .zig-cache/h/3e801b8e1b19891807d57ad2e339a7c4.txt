@@ -1,3 +1,0 @@
-0
-81 4634334 1772379540050056989 210b67f447004d7672426ed550acc2c7 0 /home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/src/main.c
-153 4637822 1772379414910057466 d77faca7051ac5e045e386e4de162781 0 /home/waks_work/Documents/PROJECTS/CLANG/main_c_projects/waks_cstd/include/io.h
