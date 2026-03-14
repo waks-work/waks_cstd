@@ -1,4 +1,32 @@
-#include "arena.h"
+#include "../include/arena.h"
+
+void test_with_defer()
+{
+    Arena *arena = ArenaAlloc();
+    uint32_t user = 100;
+
+    // Allocate
+    Handle h1 = BoxAlloc(arena, 64, user);
+
+    // Borrow and immediately DEFER the release
+    void *ptr1 = HandleBorrow(arena, h1, user);
+    HandleDefer(arena, h1); // Registered for cleanup
+
+    ASSERT(ptr1 != NULL);
+
+    // You can borrow multiple times
+    HandleBorrow(arena, h1, user);
+    HandleDefer(arena, h1); // Registered again
+
+    // No need to call HandleRelease() manually anymore!
+    dbg_print("Doing work without manual release...\n");
+
+    // Clean up EVERYTHING at once
+    ArenaReset(arena);
+
+    dbg_print("Arena reset and all borrows cleared.\n");
+    ArenaRelease(arena);
+}
 
 void test_handle_invalidation()
 {

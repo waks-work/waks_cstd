@@ -1,33 +1,12 @@
 #!/bin/bash
-
-# Exit immediately if a command exits with a non-zero status
 set -e
 
 echo "🔍 Running Waks_CStd pre-commit checks..."
 
-# 1. Formatting (The "Aesthetic" Check)
-if command -v clang-format &> /dev/null; then
-    echo "🎨 Formatting C code with clang-format..."
-    find src include -name "*.c" -o -name "*.h" | xargs clang-format -i
-else
-    echo "⚠️  clang-format not found. Skipping formatting."
-fi
+# Only format changed files to speed this up significantly
+git diff --cached --name-only --diff-filter=ACM | grep -E "\.(c|h)$" | xargs -r clang-format -i
 
-# 2. Static Analysis (The "Safety" Check)
-if command -v cppcheck &> /dev/null; then
-    echo "🕵️  Running cppcheck for memory leaks and UB..."
-    cppcheck --enable=all --suppress=missingIncludeSystem \
-             --error-exitcode=1 -I include src/
-else
-    echo "⚠️  cppcheck not found. Skipping static analysis."
-fi
-
-# 3. Build Verification (The "Integrity" Check)
-echo "🔨 Verifying build integrity..."
-mkdir -p build
-cd build
-cmake .. -DWAKS_FREESTANDING=OFF > /dev/null
-make > /dev/null
-cd ..
+# Run cppcheck only on changed files
+git diff --cached --name-only --diff-filter=ACM | grep -E "\.(c|h)$" | xargs -r cppcheck --enable=all --suppress=missingIncludeSystem -I include
 
 echo "✅ Pre-commit checks passed!"

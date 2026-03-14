@@ -1,0 +1,10 @@
+CompileFlags:
+  Add:
+    - "-Iinclude"
+    - "-Isrc"
+    - "-std=c11"
+    - "-Wall"
+    - "-Wextra"
+    - "-D_GNU_SOURCE"
+  # This makes clangd ignore any broken/empty JSON databases
+  CompilationDatabase: "."
