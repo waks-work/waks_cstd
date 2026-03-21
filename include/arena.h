@@ -1,15 +1,9 @@
 #ifndef ARENA_H
 #define ARENA_H
 
-typedef unsigned long size_t;
-typedef unsigned long uint64_t;
-typedef unsigned int uint32_t;
-typedef unsigned short uint16_t;
-typedef unsigned char uint8_t;
-typedef short int16_t;
-typedef long uintptr_t;
-typedef long ssize_t;
+#include "types.h"
 
+typedef __INT64_TYPE__ uintptr_t;
 /// IN ARENA
 #define NULL ((void *)0)
 #define ALIGN_16(n) (((n) + 15) & ~15)
@@ -105,10 +99,10 @@ static inline long syscall6(long n, long a1, long a2, long a3, long a4, long a5,
 extern "C"
 {
 #endif
-    void *__stdcall VirtualAlloc(void *lpAddress, size_t dwSize, uint32_t flAllocationType,
-                                 uint32_t flProtect);
-    int __stdcall VirtualFree(void *lpAddress, size_t dwSize, uint32_t dwFreeType);
-    void __stdcall ExitProcess(uint32_t uExitCode);
+    void *__stdcall VirtualAlloc(void *lpAddress, usize dwSize, u32 flAllocationType,
+                                 u32 flProtect);
+    i32 __stdcall VirtualFree(void *lpAddress, usize dwSize, u32 dwFreeType);
+    void __stdcall ExitProcess(u32 ExitCode);
 #ifdef __cpluscplus
 }
 #endif
@@ -124,8 +118,8 @@ static void os_panic()
 #endif
 }
 
-static inline void dbg_print(const char *str);
-static inline void dbg_print_int(int16_t n);
+static inline void dbg_print(const i8 *str);
+static inline void dbg_print_int(i16 n);
 
 /// Allocation: Handle handle = BoxNew(arena, u32, owner_id);
 #define BoxNew(arena, type, owner) BoxAlloc(arena, sizeof(type), owner)
@@ -142,8 +136,7 @@ static inline void dbg_print_int(int16_t n);
 ///          //Do work... no need to call ArenaSetPosBack as the macro does
 ///     }
 #define ArenaTempBlock(arena)                                                                      \
-    for (uint64_t _pos = ArenaGetPos(arena), _once = 1; _once;                                     \
-         _once = 0, ArenaSetPosBack(arena, _pos))
+    for (u64 _pos = ArenaGetPos(arena), _once = 1; _once; _once = 0, ArenaSetPosBack(arena, _pos))
 
 /// ASSERT:  ASSERT(needed_space <= arena->capacity);
 #define PANIC_MSG(msg)                                                                             \
@@ -181,7 +174,7 @@ static inline void dbg_print_int(int16_t n);
 #define SET_BIT(reg, n) ((reg) |= BIT(n))
 #define CLR_BIT(reg, n) ((reg) &= ~BIT(n))
 #define GET_BIT(reg, n) ((reg) & BIT(n))
-#define GB(x) ((uint64_t)(x) << 30)
+#define GB(x) ((u64)(x) << 30)
 
 /// Automatic clean up RAAI
 ///  Arena *arena = ArenaAlloc();
@@ -190,8 +183,8 @@ static inline void dbg_print_int(int16_t n);
 ///      ScopedHandle handle = BoxNew(current_arena, uint32_t, 0);
 ///      ScopedBorrow(uint32_t,  handle, 0);
 ///      if (ptr) { *ptr = 1337; dbg_print("Data set successfully");}
-///  }  <--- HandleRelease(current_arena, handle) and HandleRelease(current_arena,ptr) called;
-///  ArenaRelease(arena);
+///  }  <--- HandleRelease(current_arena, handle) and
+///  HandleRelease(current_arena,ptr) called; ArenaRelease(arena);
 #define ScopedHandle __attribute__((cleanup(_auto_release_handle))) __attribute__((unused)) Handle
 
 // Use this when you want the borrow to end EXACTLY at the '}'
@@ -239,47 +232,171 @@ static inline void dbg_print_int(int16_t n);
 /// Handle hd2 = MOVE_TO(arena, hd1, 2);
 #define MOVE_TO(arena, handle, new_owner) MOVE(arena, handle, my_id, new_owner)
 
+/// Foward Iterator (slice)
+/// usage: foreach(u32, item, my_slice) {*item = 0;}
+#define foreach(type, item, slice)                                                                 \
+    for (type *item = (type *)(slice).ptr, *_end = (item + (slice).len); item < _end; item++)
+
+/// Automatically infered types.
+/// usage: typedef struct { u32 *ptr; usize len;} slice_u32; slice_u32 s = { arr, 10};
+/// usage: foreach_auto(x, s) {*x = 5; }
+/// important: (slice).ptr -> u32* && __typeof__((slice).ptr) -> u32*
+#define foreach_auto(item, slice)                                                                  \
+    for (__typeof__((slice).ptr) item = (slice).ptr, _end = item + (slice).len; item < _end; item++)
+
+/// usage: foreach_if(u8, page, mem_region, is_page_free(page), mark_allocated(page))
+#define foreach_if(type, item, slice, condition, action)                                           \
+    foreach (type, item, slice)                                                                    \
+    {                                                                                              \
+        if (!(condition))                                                                          \
+        {                                                                                          \
+            action;                                                                                \
+        }                                                                                          \
+    }
+
+/// usage: foreach_filter(u32, x, slice, *x > 10) { dbg_print_int(*x);}
+#define foreach_filter(type, item, slice, condition)                                               \
+    foreach (type, item, slice)                                                                    \
+        if (!(condition))                                                                          \
+            continue;                                                                              \
+        else /// condition will be executed here
+
+/// usage: foreach_map(u32, x,slice, *x *= 2);
+#define foreach_map(type, item, slice, expression)                                                 \
+    foreach (type, item, slice)                                                                    \
+    {                                                                                              \
+        expression;                                                                                \
+    }
+
+/// Linked: Intrusive lists (Kernel tasks / Resource chains)
+/// usage: foreach_node(Task, t, head_task) { schedule(t); }
+#define foreach_node(type, item, head) for (type *item = (head); item != NULL; item = item->next)
+
+/// Safe Linked: Allows for deletion of 'item' during iteration
+#define foreach_node_safe(type, item, next_item, head)                                             \
+    for (type *item = (head), *next_item = item ? item->next : NULL; item != NULL;                 \
+         item = next_item, next_item = item ? item->next : NULL)
+
+/// usage: Task *found = NULL; foreach_find(Task, t, head, t->id == 5, found = t)
+#define foreach_find(type, item, head, condition, result_assign)                                   \
+    foreach_node(type, item, head)                                                                 \
+    {                                                                                              \
+        if (condition)                                                                             \
+        {                                                                                          \
+            result_assign;                                                                         \
+            break;                                                                                 \
+        }                                                                                          \
+    }
+
+/// Reverse Iterator (LIFO / Cleanup)
+#define foreach_rev(type, item, slice)                                                             \
+    for (type *item = (slice).len ? ((type *)((slice).ptr) + (slice).len - 1) : NULL,              \
+              *_start = (type *)(slice).ptr;                                                       \
+         item >= _start; item--)
+
+/// Strided: Walking memory pages or fixed-size blocks (4KB / Stride)
+/// usage: foreach_step(u8, page, my_arena, 4096)
+#define foreach_step(type, item, slice, step)                                                      \
+    for (type *item = (type *)(slice).ptr, *_end = (type *)((u8 *)(slice).ptr + (slice).len);      \
+         (u8 *)item < (u8 *)_end; item = (type *)((u8 *)item + (step)))
+
+/// Sentinel: Null terminated strings or streams
+/// usage: foreach_ptr(char, c, my_string) { if(*c == 'A') ... }
+#define foreach_ptr(type, item, start_ptr)                                                         \
+    for (type *item = (type *)(start_ptr); item && *(char *)item != 0; item++)
+
+/// This gives us : borrow -> use -> auto_release
+/// usage: foreach_borrow(u32, ptr, handle, 1) { *ptr = 42; }
+#define foreach_borrow(type, item, handle, owner)                                                  \
+    for (type *item = (type *)HandleBorrow(current_arena, handle, owner), *_once = item; _once;    \
+         _once = NULL, HandleRelease(current_arena, handle))
+
+#define array_list_get_safe(arena, list, index)                                                    \
+    ((index < list.length) ? (HandleDefer(arena, list.data),                                       \
+                              (Any *)HandleBorrow(arena, list.data, list.user_id) + index)         \
+                           : NULL)
+
+/// ARENA STRUCTS
+
 typedef struct Arena Arena;
 struct Arena
 {
-    uint8_t *memory;
-    uint64_t capacity;
-    uint64_t position;
-    uint64_t commited;
-    uint64_t pagesize;
-    uint32_t defer_count;
+    u8 *memory;
+    u64 capacity;
+    u64 position;
+    u64 commited;
+    u64 pagesize;
+    u32 defer_count;
 };
 
 typedef struct BoxHeader BoxHeader;
 struct BoxHeader
 {
-    uint32_t size;     // 0-3: Bytes of user data
-    uint32_t owner_id; // 4-7: Standard uint
-    uint16_t version;  // 8-9: Standard uint
-    int16_t borrows;   // 10-11: Standard int
-    uint16_t magic;    // 12-13: 0xBAAD
-    uint16_t padding;  // 14-15: Explicit padding for 16B alignment
+    u32 size;     // 0-3: Bytes of user data
+    u32 owner_id; // 4-7: Standard uint
+    u16 version;  // 8-9: Standard uint
+    i16 borrows;  // 10-11: Standard int
+    u16 magic;    // 12-13: 0xBAAD
+    u16 padding;  // 14-15: Explicit padding for 16B alignment
 };
 
 typedef struct Handle Handle;
 struct Handle
 {
-    uint64_t offset;
-    uint16_t version;
+    u64 offset;
+    u16 version;
 };
 
+/// DATA STRUCTURES STRUCTS
+
+typedef struct
+{
+    Handle data;    // Handle to the underlying array
+    usize capacity; // Total slots
+    usize length;   // Used slots
+    u32 user_id;    // Owner of the data
+} ArrayList;
+
+/// zig/rust slice: replaces raw pointers
+typedef struct Span Span;
+struct Span
+{
+    u8 *ptr;
+    usize len;
+};
+
+#define SLICE_CAST(type, span) ((type *)(span).ptr)
+
+/// Metadata stays inside the struct you want to link: no need for extra boxalloc
+typedef struct ListNode ListNode;
+struct ListNode
+{
+    ListNode *next;
+    ListNode *prev;
+};
+
+/// Rust Option C style
+typedef struct Option Option;
+struct Option
+{
+    Handle value;
+    b8 has_value;
+};
+
+/// ARENA API/METHOD IMPLEMENTATION
+
 Arena *ArenaAlloc(void);
-uint64_t ArenaGetPos(Arena *arena);
-static inline void *ArenaPush(Arena *arena, uint64_t size);
-static inline void ArenaSetPosBack(Arena *arena, uint64_t pos);
+u64 ArenaGetPos(Arena *arena);
+static inline void *ArenaPush(Arena *arena, u64 size);
+static inline void ArenaSetPosBack(Arena *arena, u64 pos);
 static inline void ArenaRelease(Arena *arena);
 static inline void ArenaReset(Arena *arena);
 static inline void _auto_release_handle(Handle *handle);
 
-Handle BoxAlloc(Arena *arena, uint32_t size, uint32_t owner);
-static inline void *HandleBorrow(Arena *arena, Handle handle, uint64_t caller);
-static inline void *HandleBorrowMut(Arena *arena, Handle handle, uint32_t caller);
-Handle HandleMove(Arena *arena, Handle handle, uint32_t old_owner, uint32_t new_owner);
+Handle BoxAlloc(Arena *arena, u32 size, u32 owner);
+static inline void *HandleBorrow(Arena *arena, Handle handle, u64 caller);
+static inline void *HandleBorrowMut(Arena *arena, Handle handle, u32 caller);
+Handle HandleMove(Arena *arena, Handle handle, u32 old_owner, u32 new_owner);
 static inline void HandleRelease(Arena *arena, Handle handle);
 static inline void HandleReleaseMut(Arena *arena, Handle handle);
 static inline void HandleDefer(Arena *arena, Handle handle);
@@ -287,6 +404,20 @@ static inline void HandleDefer(Arena *arena, Handle handle);
 static inline void _auto_release_handle(Handle *handle);
 static inline void _raii_release_now(void *pointer);
 static inline void _raii_release_deferred(void *pointer);
+
+/// DATA STRUCTURES API/METHOD IMPLEMENTATION
+static inline ArrayList array_list_init(Arena *arena, usize initial_cap, u32 user_id);
+
+static inline ArrayList array_list_init(Arena *arena, usize initial_cap, u32 user_id)
+{
+    ArrayList list = {0};
+    list.user_id = user_id;
+    list.capacity = initial_cap;
+    list.length = 0;
+    // Allocate the actual buffer
+    list.data = BoxAlloc(arena, initial_cap * sizeof(Any), user_id);
+    return list;
+}
 
 /// Context Management
 extern _Thread_local Arena *current_arena;
@@ -307,7 +438,7 @@ static inline void _raii_release_now(void *pointer)
     if (*pointer_to_ptr && current_arena)
     {
         BoxHeader *header = ((BoxHeader *)*pointer_to_ptr) - 1;
-        Handle handle = {.offset = (uint8_t *)header - current_arena->memory,
+        Handle handle = {.offset = (u8 *)header - current_arena->memory,
                          .version = header->version};
         HandleRelease(current_arena, handle);
     }
@@ -319,7 +450,7 @@ static inline void _raii_release_deferred(void *pointer)
     if (*pointer_to_ptr && current_arena)
     {
         BoxHeader *header = ((BoxHeader *)*pointer_to_ptr) - 1;
-        Handle handle = {.offset = (uint8_t *)header - current_arena->memory,
+        Handle handle = {.offset = (u8 *)header - current_arena->memory,
                          .version = header->version};
         HandleDefer(current_arena, handle);
     }
@@ -327,7 +458,7 @@ static inline void _raii_release_deferred(void *pointer)
 
 Arena *ArenaAlloc(void)
 {
-    uint64_t capacity = GB(64);
+    u64 capacity = GB(64);
 
 #if defined(__linux)
     void *base =
@@ -349,7 +480,7 @@ Arena *ArenaAlloc(void)
     Arena *arena = (Arena *)base;
 #endif
 
-    arena->memory = (uint8_t *)base;
+    arena->memory = (u8 *)base;
     arena->capacity = capacity;
     arena->position = ALIGN_16(sizeof(Arena)); // starts after the header
     arena->commited = PAGESIZE;
@@ -357,19 +488,18 @@ Arena *ArenaAlloc(void)
     return arena;
 }
 
-static inline void *ArenaPush(Arena *arena, uint64_t size)
+static inline void *ArenaPush(Arena *arena, u64 size)
 {
-    uint64_t aligned_size = ALIGN_16(size);
-    uint64_t next_pos = arena->position + aligned_size;
+    u64 aligned_size = ALIGN_16(size);
+    u64 next_pos = arena->position + aligned_size;
     // 16 handles for safety
-    uint64_t needed_space = next_pos + (arena->defer_count * sizeof(Handle)) + 256;
+    u64 needed_space = next_pos + (arena->defer_count * sizeof(Handle)) + 256;
     ASSERT(needed_space <= arena->capacity);
 
     if (needed_space > arena->commited)
     {
-        uint64_t commit_needed = needed_space - arena->commited;
-        uint64_t commit_aligned =
-            ALIGN_16(commit_needed + arena->pagesize - 1) & ~(arena->pagesize - 1);
+        u64 commit_needed = needed_space - arena->commited;
+        u64 commit_aligned = ALIGN_16(commit_needed + arena->pagesize - 1) & ~(arena->pagesize - 1);
 
 #if defined(__linux)
         uintptr_t ret = syscall6(SYS_mprotect, (long)(arena->memory + arena->commited),
@@ -377,7 +507,7 @@ static inline void *ArenaPush(Arena *arena, uint64_t size)
         if (ret != 0)
             return NULL;
 #elif defined(_WIN32) || defined(_WIN64)
-        if (!VirtualAlloc(arena->memory + arena->commited, (size_t)commit_aligned, MEM_COMMIT,
+        if (!VirtualAlloc(arena->memory + arena->commited, (usize)commit_aligned, MEM_COMMIT,
                           PAGE_READWRITE))
             return NULL;
 #endif
@@ -390,15 +520,15 @@ static inline void *ArenaPush(Arena *arena, uint64_t size)
     return ptr;
 }
 
-uint64_t ArenaGetPos(Arena *arena)
+u64 ArenaGetPos(Arena *arena)
 {
     return arena->position;
 }
 
-static inline void ArenaSetPosBack(Arena *arena, uint64_t position)
+static inline void ArenaSetPosBack(Arena *arena, u64 position)
 {
     ASSERT(position <= arena->position);
-    uint64_t rounded_position = ALIGN_16(position + arena->pagesize - 1) & ~(arena->pagesize - 1);
+    u64 rounded_position = ALIGN_16(position + arena->pagesize - 1) & ~(arena->pagesize - 1);
 
     if (rounded_position < arena->commited)
     {
@@ -406,7 +536,7 @@ static inline void ArenaSetPosBack(Arena *arena, uint64_t position)
         syscall6(SYS_madvise, (long)(arena->memory + rounded_position),
                  arena->commited - rounded_position, MADV_DONTNEED, 0, 0, 0);
 #elif defined(_WIN32) || defined(_WIN64)
-        VirtualFree(arena->memory + rounded_position, (size_t)(arena->commited - rounded_position),
+        VirtualFree(arena->memory + rounded_position, (usize)(arena->commited - rounded_position),
                     MEM_DECOMMIT);
 #endif
     }
@@ -429,14 +559,14 @@ static inline void ArenaRelease(Arena *arena)
 static inline void ArenaReset(Arena *arena)
 {
     // process based on pagewide boundary
-    for (uint32_t i = 1; i <= arena->defer_count; i++)
+    for (u32 i = 1; i <= arena->defer_count; i++)
     {
-        uint64_t defer_offset = arena->commited - (i * sizeof(Handle));
+        u64 defer_offset = arena->commited - (i * sizeof(Handle));
         Handle *handle_ptr = (Handle *)(arena->memory + defer_offset);
         BoxHeader *header = (BoxHeader *)(arena->memory + handle_ptr->offset);
 #ifdef CONCURRENT_MODE
         // If it was a Mut borrow (-1), set to 0. If shared (>0), decrement.
-        int16_t b = __atomic_load_n(&header->borrows, ATOMIC_SEQ_CST);
+        i16 b = __atomic_load_n(&header->borrows, ATOMIC_SEQ_CST);
         if (b == -1)
             __atomic_store_n(&header->borrows, 0, ATOMIC_SEQ_CST);
         else if (b > 0)
@@ -455,11 +585,11 @@ static inline void ArenaReset(Arena *arena)
     // This makes all memory available again.
     // Old handles will fail because their version won't match
     // whatever is newly allocated in this space.
-    uint64_t start_position = ALIGN_16(sizeof(Arena));
+    u64 start_position = ALIGN_16(sizeof(Arena));
 
     if (arena->commited > start_position)
     {
-        uint64_t size_to_reclaim = arena->commited - start_position;
+        u64 size_to_reclaim = arena->commited - start_position;
 #if defined(__linux)
         syscall6(SYS_madvise, (long)(arena->memory + start_position), size_to_reclaim,
                  MADV_DONTNEED, 0, 0, 0);
@@ -470,10 +600,10 @@ static inline void ArenaReset(Arena *arena)
     arena->position = start_position;
 }
 
-Handle BoxAlloc(Arena *arena, uint32_t size, uint32_t owner)
+Handle BoxAlloc(Arena *arena, u32 size, u32 owner)
 {
-    uint32_t total_size = ALIGN_16(sizeof(BoxHeader) + size);
-    uint8_t *raw_ptr = (uint8_t *)ArenaPush(arena, total_size);
+    u32 total_size = ALIGN_16(sizeof(BoxHeader) + size);
+    u8 *raw_ptr = (u8 *)ArenaPush(arena, total_size);
     if (!raw_ptr)
         return (Handle){0, 0};
 
@@ -491,10 +621,10 @@ Handle BoxAlloc(Arena *arena, uint32_t size, uint32_t owner)
     handle->borrows = 0;
 #endif
 
-    return (Handle){.offset = (uint64_t)(raw_ptr - arena->memory), .version = 1};
+    return (Handle){.offset = (u64)(raw_ptr - arena->memory), .version = 1};
 }
 
-static inline void *HandleBorrow(Arena *arena, Handle handle, uint64_t caller)
+static inline void *HandleBorrow(Arena *arena, Handle handle, u64 caller)
 {
     if (handle.version == 0)
         return NULL;
@@ -506,7 +636,7 @@ static inline void *HandleBorrow(Arena *arena, Handle handle, uint64_t caller)
         __atomic_load_n(&header->owner_id, ATOMIC_SEQ_CST) != caller || header->magic != BOX_MAGIC)
         return NULL;
 
-    int16_t borrow = __atomic_load_n(&header->borrows, ATOMIC_SEQ_CST);
+    i16 borrow = __atomic_load_n(&header->borrows, ATOMIC_SEQ_CST);
     if (borrow < 0)
         return NULL;
     __atomic_fetch_add(&header->borrows, 1, ATOMIC_SEQ_CST);
@@ -519,7 +649,7 @@ static inline void *HandleBorrow(Arena *arena, Handle handle, uint64_t caller)
     return (void *)(header + 1);
 }
 
-static inline void *HandleBorrowMut(Arena *arena, Handle handle, uint32_t caller)
+static inline void *HandleBorrowMut(Arena *arena, Handle handle, u32 caller)
 {
     if (handle.version == 0)
         return NULL;
@@ -545,7 +675,7 @@ static inline void *HandleBorrowMut(Arena *arena, Handle handle, uint32_t caller
     return (void *)(header + 1);
 }
 
-Handle HandleMove(Arena *arena, Handle handle, uint32_t old_owner, uint32_t new_owner)
+Handle HandleMove(Arena *arena, Handle handle, u32 old_owner, u32 new_owner)
 {
     BoxHeader *header = (BoxHeader *)(arena->memory + handle.offset);
 
@@ -559,7 +689,7 @@ Handle HandleMove(Arena *arena, Handle handle, uint32_t old_owner, uint32_t new_
     __atomic_fetch_add(&header->version, 1, ATOMIC_SEQ_CST);
     __atomic_store_n(&header->owner_id, new_owner, ATOMIC_SEQ_CST);
 
-    return (Handle){.offset = handle.offset, .version = (uint16_t)(handle.version + 1)};
+    return (Handle){.offset = handle.offset, .version = (u16)(handle.version + 1)};
 #else
     if ((header->owner_id != old_owner || header->version != handle.version) &&
         header->borrows != 0)
@@ -610,23 +740,23 @@ static inline void HandleDefer(Arena *arena, Handle handle)
 
     // we store our defer list at the end of the arena growing backwards.
     arena->defer_count++;
-    uint64_t defer_offset = arena->commited - (arena->defer_count * sizeof(Handle));
+    u64 defer_offset = arena->commited - (arena->defer_count * sizeof(Handle));
 
     Handle *defer_ptr = (Handle *)(arena->memory + defer_offset);
     *defer_ptr = handle;
 }
 
-static inline void dbg_print(const char *str)
+static inline void dbg_print(const i8 *str)
 {
 #if defined(__linux__)
-    const char *pointer = str;
+    const i8 *pointer = str;
     while (*pointer)
         pointer++;
     syscall6(SYS_write, 2, (long)str, (long)(pointer - str), 0, 0, 0);
 #endif
 }
 
-static inline void dbg_print_int(int16_t n)
+static inline void dbg_print_int(i16 n)
 {
     char buf[16];
     int i = 0;

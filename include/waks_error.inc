@@ -1,0 +1,8 @@
+/// Format: X(ENUM_NAME, STRING_DESCRIPTION) 
+X(WAKS_OK,          "Operation successful")
+X(WAKS_ERR_GENERIC, "An unknown error occurred")
+X(WAKS_ERR_NOMEM,   "Arena allocation failed: Out of memory")
+X(WAKS_ERR_BOUNDS,  "Pointer out of bounds during iteration")
+X(WAKS_ERR_ALIGN,   "Memory alignment violation")
+X(WAKS_ERR_NULL,    "Null pointer dereference prevented")
+X(WAKS_ERR_OVERFLOW,"Integer or buffer overflow detected")

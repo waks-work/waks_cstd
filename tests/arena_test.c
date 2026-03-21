@@ -1,9 +1,9 @@
-#include "../include/arena.h"
+#include "../include/wt_io.h"
 
 void test_with_defer()
 {
     Arena *arena = ArenaAlloc();
-    uint32_t user = 100;
+    u32 user = 100;
 
     // Allocate
     Handle h1 = BoxAlloc(arena, 64, user);
@@ -36,8 +36,8 @@ void test_handle_invalidation()
     ASSERT(arena != NULL);
     dbg_print("ALLOCK_OK\n");
 
-    uint32_t user1 = 100;
-    uint32_t user2 = 200;
+    u32 user1 = 100;
+    u32 user2 = 200;
     // 2. Alloc and Borrow
     Handle h1 = BoxAlloc(arena, 64, user1);
     ASSERT(h1.version == 1);
