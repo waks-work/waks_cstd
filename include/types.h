@@ -44,27 +44,38 @@ struct String
 COMPILER_PRAGMA(GCC diagnostic error "-Wswitch")
 COMPILER_PRAGMA(GCC diagnostic error "-Wimplicit-fallthrough")
 
-#define tagged_union(_tag, _union)                                                                 \
-    struct __attribute__((designated_init))                                                        \
-    {                                                                                              \
-        enum _tag _internal_tag;                                                                   \
-        union _union _internal_field;                                                              \
-    }
+// Detect architecture
+#if defined(__x86_64__) || defined(_M_X64)
+// x86-64: Use top 16 bits (48–63) for tagging
+#define _PTR_MASK 0x0000FFFFFFFFFFFFULL
+#define _EXTRACT_PTR(slot) (u8 *)(((i64)((slot) & _PTR_MASK) << 16) >> 16)
+#define _TAG_SHIFT 48
 
-#define tunion_constructor(_T, _tag, _field, _value)                                               \
-    (_T)                                                                                           \
-    {                                                                                              \
-        ._internal_tag = _tag, ._internal_field._field = (_value)                                  \
-    }
+#elif defined(__aarch64__) && defined(__ARM_64BIT_STATE)
+// ARM64: Use Top Byte Ignore (TBI), bits 56–63
+#define _PTR_MASK 0x00FFFFFFFFFFFFFFULL               // Mask bits 56–63
+#define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK) // TBI: bits ignored on deref
+#define _TAG_SHIFT 56
 
-#define tunion_eliminator(_value, _tag, _field, _name)                                             \
-    _tag:                                                                                          \
-    AUTO _name = ((_value)._internal_field._field);
+#elif defined(__riscv) && (__riscv_xlen == 64)
+// RISC-V 64: Assume 48-bit addressing (SV48) if no pointer masking
+#if defined(__riscv_zicbom) || defined(__riscv_zicboz)
+// Use compressed instructions or cache hints (optional)
+#endif
+#define _PTR_MASK 0x0000FFFFFFFFFFFFULL
+#define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK) // No sign-extension needed
+#define _TAG_SHIFT 48
 
-#define match(x) switch ((x)._internal_tag)
-#define with                                                                                       \
-    break;                                                                                         \
-    case
+#else
+// Fallback: Use lower bits (if aligned)
+#warning "Using lower-bit tagging for portability"
+#define _PTR_MASK 0xFFFFFFFFFFFFFFF0ULL // Mask low 4 bits
+#define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK)
+#define _TAG_SHIFT 0 // Tags in bits 0–3
+#endif
+
+#define match(x) switch (__builtin_expect((x)._slot0 >> _TAG_SHIFT, _tag_i64))
+#define with break;
 
 typedef enum WaksResult WaksResult;
 enum WaksResult
@@ -97,23 +108,108 @@ union any_union
     WaksResult _waks_err;
 };
 
-typedef tagged_union(any_tag, any_union) Any;
+typedef struct
+{
+    u64 _slot0; // Tag (Top 16) + Pointer/Value (Bottom 48)
+    u64 _slot1; // String.length && secondary data
+} Any;
 
-#define AnyStr(val) tunion_constructor(Any, _tag_str, _str, val)
-#define AnyInt(val) tunion_constructor(Any, _tag_i64, _i64, (i64)val)
-#define AnyUint(val) tunion_constructor(Any, _tag_u64, _u64, (u64)val)
-#define AnyChar(val) tunion_constructor(Any, _tag_char, _char, (u8)val)
-#define AnyBool(val) tunion_constructor(Any, _tag_bool, _bool, val)
-#define AnyNone() tunion_constructor(Any, _tag_none, _none, false)
-#define AnyWaks(val) tunion_constructor(Any, _tag_waks_err, _waks_err, val)
+/// for (usize i = 0; i < v.length; i++) {
+///     Any item = *vector_get(arena, &v, i);
+///     match(item) {
+///         MatchStr(item, s) { io_print(s); io_print(STR("\n")); } with; default: break;
+///     }
+/// }
+#define MatchStr(v, name)                                                                          \
+    case _tag_str:                                                                                 \
+        String name = {.data = _EXTRACT_PTR((v)._slot0), .length = (usize)(v)._slot1};
 
-#define MatchStr(v, name) tunion_eliminator(v, _tag_str, _str, name)
-#define MatchInt(v, name) tunion_eliminator(v, _tag_i64, _i64, name)
-#define MatchUint(v, name) tunion_eliminator(v, _tag_u64, _u64, name)
-#define MatchChar(v, name) tunion_eliminator(v, _tag_char, _char, name)
-#define MatchBool(v, name) tunion_eliminator(v, _tag_bool, _bool, name)
-#define MatchNone(v, n) tunion_eliminator(v, _tag_none, _none, n)
-#define MatchWaks(v, name) tunion_eliminator(v, _tag_waks_err, _waks_err, name)
+/// Any item = vector_get(arena, &v, i);
+/// match(item) { MatchInt(item, val) { dbg_print_int((i16)val); } with; default: break; }
+#define MatchInt(v, name)                                                                          \
+    case _tag_i64:                                                                                 \
+        i64 name = (i64)(((i64)((v)._slot0 & _PTR_MASK) << 16) >> 16);
+#define MatchUint(v, name)                                                                         \
+    case _tag_u64:                                                                                 \
+        u64 name = (u64)((v)._slot0 & _PTR_MASK) | ((u64)(v)._slot1 << 48);
+#define MatchChar(v, name)                                                                         \
+    case _tag_char:                                                                                \
+        u8 name = (u8)(((v)._slot0 & 0xFF));
+#define MatchBool(v, name)                                                                         \
+    case _tag_bool:                                                                                \
+        b8 name = (b8)((v)._slot0 & 0x1);
+#define MatchNone(v) case _tag_none:
+
+/// Any result = some_logic();
+/// match(result) { MatchWaks(result, err) { return err; } with; }
+#define MatchWaks(v, name)                                                                         \
+    case _tag_waks_err:                                                                            \
+        WaksResult name = (WaksResult)((v)._slot0 & _PTR_MASK);
+
+static inline Any AnyStr(String str);
+static inline Any AnyInt(i64 value);
+static inline Any AnyUint(u64 value);
+static inline Any AnyChar(u8 value);
+static inline Any AnyBool(b8 strict);
+static inline Any AnyWaks(WaksResult result);
+
+/// Vector v = vector_init(arena, 10, sizeof(Any), user_id);
+/// vector_push(&v, AnyInt(42));
+/// vector_push(&v, AnyStr(from_cstr("Hello Waks")));
+/// vector_push(&v, AnyBool(true));
+static inline Any AnyStr(String str)
+{
+    return (Any){
+        // Mask the pointer and OR the tag into the top 16 bits
+        ._slot0 = ((u64)str.data & _PTR_MASK) | ((u64)_tag_str << _TAG_SHIFT),
+        ._slot1 = (u64)str.length,
+    };
+}
+
+static inline Any AnyUint(u64 value)
+{
+    return (Any){
+        ._slot0 = (value & _PTR_MASK) | ((u64)_tag_u64 << _TAG_SHIFT),
+        ._slot1 = (value >> 48),
+    };
+}
+
+static inline Any AnyInt(i64 value)
+{
+    return (Any){
+        ._slot0 = ((u64)value & _PTR_MASK) | ((u64)_tag_i64 << _TAG_SHIFT),
+        ._slot1 = 0,
+    };
+}
+
+static inline Any AnyChar(u8 value)
+{
+    return (Any){
+        ._slot0 = ((u64)value & _PTR_MASK) | ((u64)_tag_char << _TAG_SHIFT),
+        ._slot1 = 0,
+    };
+}
+
+static inline Any AnyBool(b8 value)
+{
+    return (Any){
+        ._slot0 = ((u64)value & _PTR_MASK) | ((u64)_tag_bool << _TAG_SHIFT),
+        ._slot1 = 0,
+    };
+}
+
+static inline Any AnyNone(void)
+{
+    return (Any){._slot0 = (u64)_tag_none << _TAG_SHIFT, ._slot1 = 0};
+}
+
+static inline Any AnyWaks(WaksResult result)
+{
+    return (Any){
+        ._slot0 = ((u64)result & _PTR_MASK) | ((u64)_tag_waks_err << _TAG_SHIFT),
+        ._slot1 = 0,
+    };
+}
 
 #pragma GCC poison _internal_tag _internal_field _str _i64 _u64 _char _bool
 

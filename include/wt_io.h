@@ -9,8 +9,8 @@
 /// usage: void waks_error_handle(const char *context, i32 err_code) {
 /// usage:     io_print_fmt("[WAKS ERROR] %s: %s (Code: %d) \n", context,
 /// usage:     waks_strerror(err_code), err_code);
-/// usage:     LOG_FMT(LOG_ERROR,"ERROR", "Failed in %s with code %d", context,err_code)
-/// usage: }
+/// usage:     LOG_FMT(LOG_ERROR,"ERROR", "Failed in %s with code %d",
+/// context,err_code) usage: }
 #define LOG_FMT(level, msg, fmt, ...)                                                              \
     do                                                                                             \
     {                                                                                              \
@@ -19,8 +19,8 @@
         io_print(STR("\n"));                                                                       \
     } while (0)
 
-/// Puts the variadic arguements on the stack or in registers __builtin uses the compiler
-/// knowledge
+/// Puts the variadic arguements on the stack or in registers __builtin uses the
+/// compiler knowledge
 typedef __builtin_va_list variadic_list;
 
 /// Acts as a pointer or an iterator to find those arguements in memory
@@ -106,7 +106,7 @@ static inline void any_print(Any value)
                     io_print((String){(u8 *)&buf[--pos], 1});
             }
         }
-        with MatchNone(value, n)
+        with MatchNone(value)
         {
             io_print(from_cstr("none"));
         }

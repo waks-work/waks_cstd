@@ -46,11 +46,11 @@ typedef __INT64_TYPE__ uintptr_t;
 
 static inline long syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 {
-    long ret;
+    long ret = 0;
 #if defined(__x86_64)
     __asm__ volatile("movq %5,%%r10; movq %6,%%r8; movq %7,%%r9; syscall"
                      : "=a"(ret)
-                     : "a"(n), "D"(a1), "S"(a2), "d"(a3), "g"(a4), "g"(a5), "g"(a6)
+                     : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(a4), "r"(a5), "r"(a6)
                      : "rcx", "r11", "memory");
 #elif defined(__aarch64__)
     register long x8 __asm__("x8") = n;
@@ -192,7 +192,8 @@ static inline void dbg_print_int(i16 n);
     __attribute__((cleanup(_raii_release_now))) type *ptr =                                        \
         (type *)HandleBorrow(current_arena, handle, caller)
 
-// Use this when you want to use the data now, but let the Arena clean it up later
+// Use this when you want to use the data now, but let the Arena clean it up
+// later
 #define DeferBorrow(type, handle, caller)                                                          \
     __attribute__((cleanup(_raii_release_deferred))) type *ptr =                                   \
         (type *)HandleBorrow(current_arena, handle, caller)
@@ -238,13 +239,14 @@ static inline void dbg_print_int(i16 n);
     for (type *item = (type *)(slice).ptr, *_end = (item + (slice).len); item < _end; item++)
 
 /// Automatically infered types.
-/// usage: typedef struct { u32 *ptr; usize len;} slice_u32; slice_u32 s = { arr, 10};
-/// usage: foreach_auto(x, s) {*x = 5; }
-/// important: (slice).ptr -> u32* && __typeof__((slice).ptr) -> u32*
+/// usage: typedef struct { u32 *ptr; usize len;} slice_u32; slice_u32 s = {
+/// arr, 10}; usage: foreach_auto(x, s) {*x = 5; } important: (slice).ptr ->
+/// u32* && __typeof__((slice).ptr) -> u32*
 #define foreach_auto(item, slice)                                                                  \
     for (__typeof__((slice).ptr) item = (slice).ptr, _end = item + (slice).len; item < _end; item++)
 
-/// usage: foreach_if(u8, page, mem_region, is_page_free(page), mark_allocated(page))
+/// usage: foreach_if(u8, page, mem_region, is_page_free(page),
+/// mark_allocated(page))
 #define foreach_if(type, item, slice, condition, action)                                           \
     foreach (type, item, slice)                                                                    \
     {                                                                                              \
@@ -307,14 +309,21 @@ static inline void dbg_print_int(i16 n);
 
 /// This gives us : borrow -> use -> auto_release
 /// usage: foreach_borrow(u32, ptr, handle, 1) { *ptr = 42; }
+/// WITH_ARENA(my_arena) {
+///    foreach_borrow(Any, item_ptr, my_vector.data, my_vector.user_id) {
+///        for(usize i = 0; i < my_vector.length; i++) {
+///            match(item_ptr[i]) { with MatchInt(item_ptr[i], val) { ... } }
+///        }
+///    }
+/// }
 #define foreach_borrow(type, item, handle, owner)                                                  \
     for (type *item = (type *)HandleBorrow(current_arena, handle, owner), *_once = item; _once;    \
          _once = NULL, HandleRelease(current_arena, handle))
 
-#define array_list_get_safe(arena, list, index)                                                    \
-    ((index < list.length) ? (HandleDefer(arena, list.data),                                       \
-                              (Any *)HandleBorrow(arena, list.data, list.user_id) + index)         \
-                           : NULL)
+#define vector_safe_get(arena, vector, index)                                                      \
+    ((index < vector.length) ? (HandleDefer(arena, vector.data),                                   \
+                                (Any *)HandleBorrow(arena, vector.data, vector.user_id) + index)   \
+                             : NULL)
 
 /// ARENA STRUCTS
 
@@ -349,25 +358,20 @@ struct Handle
 
 /// DATA STRUCTURES STRUCTS
 
-typedef struct
+typedef struct Vector Vector;
+struct Vector
 {
     Handle data;    // Handle to the underlying array
     usize capacity; // Total slots
     usize length;   // Used slots
-    u32 user_id;    // Owner of the data
-} ArrayList;
-
-/// zig/rust slice: replaces raw pointers
-typedef struct Span Span;
-struct Span
-{
-    u8 *ptr;
-    usize len;
+    usize item_size;
+    u32 user_id; // Owner of the data
 };
 
-#define SLICE_CAST(type, span) ((type *)(span).ptr)
+#define SLICE_CAST(type, string) ((type *)(string).ptr)
 
-/// Metadata stays inside the struct you want to link: no need for extra boxalloc
+/// Metadata stays inside the struct you want to link: no need for extra
+/// boxalloc
 typedef struct ListNode ListNode;
 struct ListNode
 {
@@ -375,7 +379,6 @@ struct ListNode
     ListNode *prev;
 };
 
-/// Rust Option C style
 typedef struct Option Option;
 struct Option
 {
@@ -406,17 +409,39 @@ static inline void _raii_release_now(void *pointer);
 static inline void _raii_release_deferred(void *pointer);
 
 /// DATA STRUCTURES API/METHOD IMPLEMENTATION
-static inline ArrayList array_list_init(Arena *arena, usize initial_cap, u32 user_id);
 
-static inline ArrayList array_list_init(Arena *arena, usize initial_cap, u32 user_id)
+static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id);
+static inline Any *vector_get(Arena *arena, Vector *vector, usize index);
+static inline void vector_push(Arena *arena, Vector *vector, Any value);
+static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value);
+static inline void vector_remove(Arena *arena, Vector *vector, usize index);
+static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap);
+
+static inline Vector array_list_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id)
 {
-    ArrayList list = {0};
+    Vector list = {0};
     list.user_id = user_id;
     list.capacity = initial_cap;
     list.length = 0;
-    // Allocate the actual buffer
+    list.item_size = (usize)item_size;
     list.data = BoxAlloc(arena, initial_cap * sizeof(Any), user_id);
     return list;
+}
+
+static inline Any *vector_get(Arena *arena, Vector *vector, usize index)
+{
+}
+static inline void vector_push(Arena *arena, Vector *vector, Any value)
+{
+}
+static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value)
+{
+}
+static inline void vector_remove(Arena *arena, Vector *vector, usize index)
+{
+}
+static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap)
+{
 }
 
 /// Context Management
