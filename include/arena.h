@@ -17,42 +17,42 @@ typedef __INT64_TYPE__ uintptr_t;
 
 // x86_64 syscall no.
 #if defined(__linux__)
-#if defined(__x86_64)
-#define SYS_mmap 9
-#define SYS_munmap 11
-#define SYS_write 1
-#define SYS_exit 60
-#define SYS_mprotect 10
-#define SYS_madvise 28
+#    if defined(__x86_64)
+#        define SYS_mmap 9
+#        define SYS_munmap 11
+#        define SYS_write 1
+#        define SYS_exit 60
+#        define SYS_mprotect 10
+#        define SYS_madvise 28
 
-#elif defined(__aarch64__) || defined(__riscv)
-#define SYS_mmap 222
-#define SYS_munmap 215
-#define SYS_exit 93
-#define SYS_write 64
-#define SYS_mprotect 226
-#define SYS_madvise 233
+#    elif defined(__aarch64__) || defined(__riscv)
+#        define SYS_mmap 222
+#        define SYS_munmap 215
+#        define SYS_exit 93
+#        define SYS_write 64
+#        define SYS_mprotect 226
+#        define SYS_madvise 233
 
-#endif
+#    endif
 
-#define PROT_NONE 0x0
-#define PROT_READ 0x1
-#define PROT_WRITE 0x2
-#define MAP_PRIVATE 0x02
-#define MAP_ANONYMOUS 0x20
-#define MADV_DONTNEED 4
-#define MAP_FAILED ((void *)-1)
-#define _SC_PAGESIZE 30
+#    define PROT_NONE 0x0
+#    define PROT_READ 0x1
+#    define PROT_WRITE 0x2
+#    define MAP_PRIVATE 0x02
+#    define MAP_ANONYMOUS 0x20
+#    define MADV_DONTNEED 4
+#    define MAP_FAILED ((void *)-1)
+#    define _SC_PAGESIZE 30
 
 static inline long syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 {
     long ret = 0;
-#if defined(__x86_64)
+#    if defined(__x86_64)
     __asm__ volatile("movq %5,%%r10; movq %6,%%r8; movq %7,%%r9; syscall"
                      : "=a"(ret)
                      : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(a4), "r"(a5), "r"(a6)
                      : "rcx", "r11", "memory");
-#elif defined(__aarch64__)
+#    elif defined(__aarch64__)
     register long x8 __asm__("x8") = n;
     register long x0 __asm__("x0") = a1;
     register long x1 __asm__("x1") = a2;
@@ -66,7 +66,7 @@ static inline long syscall6(long n, long a1, long a2, long a3, long a4, long a5,
                      : "memory");
     ret = x0;
 
-#elif defined(__riscv)
+#    elif defined(__riscv)
     register long a7 __asm__("a7") = n;
     register long a0 __asm__("a0") = a1;
     register long a1_reg __asm__("a1") = a2;
@@ -81,31 +81,31 @@ static inline long syscall6(long n, long a1, long a2, long a3, long a4, long a5,
                      : "memory");
     ret = a0;
 
-#endif
+#    endif
     return ret;
 }
 
 #elif defined(_WIN32) || defined(_WIN64)
 
-#define MEM_COMMIT 0x00001000
-#define MEM_RESERVE 0x00002000
-#define MEM_DECOMMIT 0x00004000
-#define MEM_RELEASE 0x00008000
-#define PAGE_NOACCESS 0x01
-#define PAGE_READWRITE 0x04
+#    define MEM_COMMIT 0x00001000
+#    define MEM_RESERVE 0x00002000
+#    define MEM_DECOMMIT 0x00004000
+#    define MEM_RELEASE 0x00008000
+#    define PAGE_NOACCESS 0x01
+#    define PAGE_READWRITE 0x04
 
 // Manually declare Kernel functions to avoid windows.h
-#ifdef __cpluscplus
+#    ifdef __cpluscplus
 extern "C"
 {
-#endif
+#    endif
     void *__stdcall VirtualAlloc(void *lpAddress, usize dwSize, u32 flAllocationType,
                                  u32 flProtect);
     i32 __stdcall VirtualFree(void *lpAddress, usize dwSize, u32 dwFreeType);
     void __stdcall ExitProcess(u32 ExitCode);
-#ifdef __cpluscplus
+#    ifdef __cpluscplus
 }
-#endif
+#    endif
 
 #endif
 
@@ -188,14 +188,14 @@ static inline void dbg_print_int(i16 n);
 #define ScopedHandle __attribute__((cleanup(_auto_release_handle))) __attribute__((unused)) Handle
 
 // Use this when you want the borrow to end EXACTLY at the '}'
-#define ScopedBorrow(type, handle, caller)                                                         \
-    __attribute__((cleanup(_raii_release_now))) type *ptr =                                        \
+#define ScopedBorrow(type, name, handle, caller)                                                   \
+    __attribute__((cleanup(_raii_release_now))) type *name =                                       \
         (type *)HandleBorrow(current_arena, handle, caller)
 
 // Use this when you want to use the data now, but let the Arena clean it up
 // later
-#define DeferBorrow(type, handle, caller)                                                          \
-    __attribute__((cleanup(_raii_release_deferred))) type *ptr =                                   \
+#define DeferBorrow(type, name, handle, caller)                                                    \
+    __attribute__((cleanup(_raii_release_deferred))) type *name =                                  \
         (type *)HandleBorrow(current_arena, handle, caller)
 
 /// Context Helper: Sets the current_arena for a block and restores it after
@@ -226,7 +226,7 @@ static inline void dbg_print_int(i16 n);
         ASSERT((handle).version != 0);                                                             \
         Handle _old = (handle);                                                                    \
         (handle) = (Handle){0, 0};                                                                 \
-        HandleMove((arena), _old, (old_owner), (new_owner))                                        \
+        HandleMove((arena), _old, (old_owner), (new_owner));                                       \
     })
 
 /// uint32_t my_id = 1;
@@ -279,7 +279,8 @@ static inline void dbg_print_int(i16 n);
     for (type *item = (head), *next_item = item ? item->next : NULL; item != NULL;                 \
          item = next_item, next_item = item ? item->next : NULL)
 
-/// usage: Task *found = NULL; foreach_find(Task, t, head, t->id == 5, found = t)
+/// usage: Task *found = NULL; foreach_find(Task, t, head, t->id == 5, found =
+/// t)
 #define foreach_find(type, item, head, condition, result_assign)                                   \
     foreach_node(type, item, head)                                                                 \
     {                                                                                              \
@@ -320,6 +321,12 @@ static inline void dbg_print_int(i16 n);
     for (type *item = (type *)HandleBorrow(current_arena, handle, owner), *_once = item; _once;    \
          _once = NULL, HandleRelease(current_arena, handle))
 
+/// Any val;
+/// WITH_ARENA(my_arena) {
+///    Any *p = vector_safe_get(my_arena, my_vec, 5);
+///    if (p) val = *p; // Copy out immediately
+/// }
+// HandleDefer cleans up the borrow here
 #define vector_safe_get(arena, vector, index)                                                      \
     ((index < vector.length) ? (HandleDefer(arena, vector.data),                                   \
                                 (Any *)HandleBorrow(arena, vector.data, vector.user_id) + index)   \
@@ -408,41 +415,15 @@ static inline void _auto_release_handle(Handle *handle);
 static inline void _raii_release_now(void *pointer);
 static inline void _raii_release_deferred(void *pointer);
 
-/// DATA STRUCTURES API/METHOD IMPLEMENTATION
+/// DATA STRUCTURES API
 
 static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id);
 static inline Any *vector_get(Arena *arena, Vector *vector, usize index);
+static inline Any vector_pop(Arena *arena, Vector *vector);
 static inline void vector_push(Arena *arena, Vector *vector, Any value);
 static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value);
 static inline void vector_remove(Arena *arena, Vector *vector, usize index);
 static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap);
-
-static inline Vector array_list_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id)
-{
-    Vector list = {0};
-    list.user_id = user_id;
-    list.capacity = initial_cap;
-    list.length = 0;
-    list.item_size = (usize)item_size;
-    list.data = BoxAlloc(arena, initial_cap * sizeof(Any), user_id);
-    return list;
-}
-
-static inline Any *vector_get(Arena *arena, Vector *vector, usize index)
-{
-}
-static inline void vector_push(Arena *arena, Vector *vector, Any value)
-{
-}
-static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value)
-{
-}
-static inline void vector_remove(Arena *arena, Vector *vector, usize index)
-{
-}
-static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap)
-{
-}
 
 /// Context Management
 extern _Thread_local Arena *current_arena;
@@ -479,6 +460,137 @@ static inline void _raii_release_deferred(void *pointer)
                          .version = header->version};
         HandleDefer(current_arena, handle);
     }
+}
+
+/// DATA STRUCTURES METHOD IMPLEMENTATION
+static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id)
+{
+    Vector list = {0};
+    list.user_id = user_id;
+    list.capacity = initial_cap;
+    list.length = 0;
+    list.item_size = (usize)item_size;
+    list.data = BoxAlloc(arena, initial_cap * sizeof(Any), user_id);
+    return list;
+}
+
+static inline Any *vector_get(Arena *arena, Vector *vector, usize index)
+{
+    if (index >= vector->length)
+        return NULL;
+
+    HandleDefer(arena, vector->data);
+    Any *ptr = (Any *)HandleBorrow(arena, vector->data, vector->user_id);
+    return ptr ? &ptr[index] : NULL;
+}
+
+static inline void vector_push(Arena *arena, Vector *vector, Any value)
+{
+    vector_ensure_capacity(arena, vector, vector->length + 1);
+
+    WITH_ARENA(arena)
+    {
+        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
+
+        if (!data_ptr)
+            PANIC_MSG("Vector Push Failed: Handle Corruption or mismatch.");
+        if (data_ptr)
+        {
+            data_ptr[vector->length] = value;
+            vector->length += 1;
+        }
+    }
+}
+
+static inline Any vector_pop(Arena *arena, Vector *vector)
+{
+    if (vector->length == 0)
+        return AnyNone();
+
+    Any result = AnyNone();
+
+    WITH_ARENA(arena)
+    {
+        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
+        if (!data_ptr)
+            PANIC_MSG("Vector pop failed: Borrow denied");
+        if (data_ptr)
+        {
+            vector->length -= 1;
+            result = data_ptr[vector->length];
+            // data_ptr[vector->length] = AnyNone();
+        }
+    }
+    return result;
+}
+
+static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value)
+{
+    if (index > vector->length)
+        index = vector->length;
+
+    vector_ensure_capacity(arena, vector, vector->length + 1);
+
+    WITH_ARENA(arena)
+    {
+        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
+        if (!data_ptr)
+            PANIC_MSG("Couldn't Insert: Failed to Borrow");
+
+        for (usize i = vector->length; i > index; i--)
+            data_ptr[i] = data_ptr[i - 1];
+
+        data_ptr[index] = value;
+        vector->length += 1;
+    }
+}
+
+static inline void vector_remove(Arena *arena, Vector *vector, usize index)
+{
+    if (index >= vector->length)
+        return;
+
+    WITH_ARENA(arena)
+    {
+        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
+        if (!data_ptr)
+            PANIC_MSG("Couldn't Insert: Failed to Borrow");
+
+        for (usize i = index; i < vector->length - 1; i++)
+            data_ptr[i] = data_ptr[i + 1];
+        vector->length -= 1;
+    }
+}
+
+static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap)
+{
+    if (vector->capacity >= min_cap)
+        return;
+
+    usize new_capacity = min_cap == 0 ? 8 : vector->capacity * 2;
+    if (min_cap >= new_capacity)
+        new_capacity = min_cap;
+
+    Handle new_handle = BoxAlloc(arena, new_capacity * sizeof(Any), vector->user_id);
+
+    WITH_ARENA(arena)
+    {
+        ScopedBorrow(Any, old_data, vector->data, vector->user_id);
+        ScopedBorrow(Any, new_data, new_handle, vector->user_id);
+
+        if (old_data && new_data)
+        {
+            for (usize i = 0; i < vector->length; i++)
+            {
+                new_data[i] = old_data[i];
+            }
+        }
+    }
+
+    Handle _temp = MOVE(arena, vector->data, vector->user_id, vector->user_id);
+
+    vector->capacity = new_capacity;
+    vector->data = new_handle;
 }
 
 Arena *ArenaAlloc(void)

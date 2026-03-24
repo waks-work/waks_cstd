@@ -19,8 +19,8 @@ typedef __PTRDIFF_TYPE__ ssize;
 typedef _Bool b8;
 
 #ifndef __cplusplus
-#define true 1
-#define false 0
+#    define true 1
+#    define false 0
 #endif
 
 typedef struct String String;
@@ -31,14 +31,14 @@ struct String
 };
 
 #if defined(__clang__)
-#define COMPILER_PRAGMA(x) _Pragma(#x)
-#define AUTO __auto_type
+#    define COMPILER_PRAGMA(x) _Pragma(#x)
+#    define AUTO __auto_type
 #elif defined(__GNUC__)
-#define COMPILER_PRAGMA(x) _Pragma(#x)
-#define AUTO auto
+#    define COMPILER_PRAGMA(x) _Pragma(#x)
+#    define AUTO auto
 #else
-#define COMPILER_PRAGMA(x) _Pragma(#x)
-#define AUTO ____auto_type
+#    define COMPILER_PRAGMA(x) _Pragma(#x)
+#    define AUTO ____auto_type
 #endif
 
 COMPILER_PRAGMA(GCC diagnostic error "-Wswitch")
@@ -47,31 +47,31 @@ COMPILER_PRAGMA(GCC diagnostic error "-Wimplicit-fallthrough")
 // Detect architecture
 #if defined(__x86_64__) || defined(_M_X64)
 // x86-64: Use top 16 bits (48–63) for tagging
-#define _PTR_MASK 0x0000FFFFFFFFFFFFULL
-#define _EXTRACT_PTR(slot) (u8 *)(((i64)((slot) & _PTR_MASK) << 16) >> 16)
-#define _TAG_SHIFT 48
+#    define _PTR_MASK 0x0000FFFFFFFFFFFFULL
+#    define _EXTRACT_PTR(slot) (u8 *)(((i64)((slot) & _PTR_MASK) << 16) >> 16)
+#    define _TAG_SHIFT 48
 
 #elif defined(__aarch64__) && defined(__ARM_64BIT_STATE)
 // ARM64: Use Top Byte Ignore (TBI), bits 56–63
-#define _PTR_MASK 0x00FFFFFFFFFFFFFFULL               // Mask bits 56–63
-#define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK) // TBI: bits ignored on deref
-#define _TAG_SHIFT 56
+#    define _PTR_MASK 0x00FFFFFFFFFFFFFFULL               // Mask bits 56–63
+#    define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK) // TBI: bits ignored on deref
+#    define _TAG_SHIFT 56
 
 #elif defined(__riscv) && (__riscv_xlen == 64)
 // RISC-V 64: Assume 48-bit addressing (SV48) if no pointer masking
-#if defined(__riscv_zicbom) || defined(__riscv_zicboz)
+#    if defined(__riscv_zicbom) || defined(__riscv_zicboz)
 // Use compressed instructions or cache hints (optional)
-#endif
-#define _PTR_MASK 0x0000FFFFFFFFFFFFULL
-#define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK) // No sign-extension needed
-#define _TAG_SHIFT 48
+#    endif
+#    define _PTR_MASK 0x0000FFFFFFFFFFFFULL
+#    define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK) // No sign-extension needed
+#    define _TAG_SHIFT 48
 
 #else
 // Fallback: Use lower bits (if aligned)
-#warning "Using lower-bit tagging for portability"
-#define _PTR_MASK 0xFFFFFFFFFFFFFFF0ULL // Mask low 4 bits
-#define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK)
-#define _TAG_SHIFT 0 // Tags in bits 0–3
+#    warning "Using lower-bit tagging for portability"
+#    define _PTR_MASK 0xFFFFFFFFFFFFFFF0ULL // Mask low 4 bits
+#    define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK)
+#    define _TAG_SHIFT 0 // Tags in bits 0–3
 #endif
 
 #define match(x) switch (__builtin_expect((x)._slot0 >> _TAG_SHIFT, _tag_i64))
@@ -117,7 +117,8 @@ typedef struct
 /// for (usize i = 0; i < v.length; i++) {
 ///     Any item = *vector_get(arena, &v, i);
 ///     match(item) {
-///         MatchStr(item, s) { io_print(s); io_print(STR("\n")); } with; default: break;
+///         MatchStr(item, s) { io_print(s); io_print(STR("\n")); } with;
+///         default: break;
 ///     }
 /// }
 #define MatchStr(v, name)                                                                          \
@@ -125,7 +126,8 @@ typedef struct
         String name = {.data = _EXTRACT_PTR((v)._slot0), .length = (usize)(v)._slot1};
 
 /// Any item = vector_get(arena, &v, i);
-/// match(item) { MatchInt(item, val) { dbg_print_int((i16)val); } with; default: break; }
+/// match(item) { MatchInt(item, val) { dbg_print_int((i16)val); } with;
+/// default: break; }
 #define MatchInt(v, name)                                                                          \
     case _tag_i64:                                                                                 \
         i64 name = (i64)(((i64)((v)._slot0 & _PTR_MASK) << 16) >> 16);
@@ -152,6 +154,7 @@ static inline Any AnyUint(u64 value);
 static inline Any AnyChar(u8 value);
 static inline Any AnyBool(b8 strict);
 static inline Any AnyWaks(WaksResult result);
+static inline Any AnyNone();
 
 /// Vector v = vector_init(arena, 10, sizeof(Any), user_id);
 /// vector_push(&v, AnyInt(42));
