@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .strip = true,
+            .strip = false,
         }),
     });
 

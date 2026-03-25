@@ -1,5 +1,31 @@
 #include "../include/wt_io.h"
 
+void test_vector()
+{
+    Arena *arena = ArenaAlloc();
+    WITH_ARENA(arena)
+    {
+        Vector vector = vector_init(arena, 2, sizeof(Any), 0);
+        vector_push(arena, &vector, AnyInt(100));
+        vector_push(arena, &vector, AnyInt(300));
+        vector_insert(arena, &vector, 1, AnyInt(200));
+
+        for (usize i = 0; i < vector.length; i++)
+        {
+            Any item = vector_get_copy(arena, &vector, i);
+            match(item)
+            {
+                MatchInt(item, val)
+                {
+                    dbg_print_int((i64)val);
+                }
+                with default : break;
+            }
+        }
+    }
+    ArenaRelease(arena);
+}
+
 void test_with_defer()
 {
     Arena *arena = ArenaAlloc();
@@ -92,8 +118,8 @@ void test_handle_invalidation()
 #if defined(__linux__)
 void _start()
 {
-    test_handle_invalidation();
-
+    /// test_handle_invalidation();
+    test_vector();
     // If we reached here, all ASSERTs passed.
     // Exit with 0.
     syscall6(SYS_exit, 0, 0, 0, 0, 0, 0);

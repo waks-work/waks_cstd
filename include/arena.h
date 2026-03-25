@@ -419,10 +419,12 @@ static inline void _raii_release_deferred(void *pointer);
 
 static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id);
 static inline Any *vector_get(Arena *arena, Vector *vector, usize index);
+static inline Any vector_get_copy(Arena *arena, Vector *vector, usize index);
 static inline Any vector_pop(Arena *arena, Vector *vector);
 static inline void vector_push(Arena *arena, Vector *vector, Any value);
 static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value);
 static inline void vector_remove(Arena *arena, Vector *vector, usize index);
+static inline void vector_clear(Vector *vector);
 static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap);
 
 /// Context Management
@@ -482,6 +484,20 @@ static inline Any *vector_get(Arena *arena, Vector *vector, usize index)
     HandleDefer(arena, vector->data);
     Any *ptr = (Any *)HandleBorrow(arena, vector->data, vector->user_id);
     return ptr ? &ptr[index] : NULL;
+}
+
+static inline Any vector_get_copy(Arena *arena, Vector *vector, usize index)
+{
+    if (index >= vector->length)
+        return AnyNone();
+    Any result = AnyNone();
+    WITH_ARENA(arena)
+    {
+        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
+        if (data_ptr)
+            result = data_ptr[index];
+    }
+    return result;
 }
 
 static inline void vector_push(Arena *arena, Vector *vector, Any value)
@@ -560,6 +576,11 @@ static inline void vector_remove(Arena *arena, Vector *vector, usize index)
             data_ptr[i] = data_ptr[i + 1];
         vector->length -= 1;
     }
+}
+
+static inline void vector_clear(Vector *vector)
+{
+    vector->length = 0;
 }
 
 static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap)
