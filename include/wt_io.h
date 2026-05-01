@@ -10,17 +10,16 @@
 /// usage:     io_print_fmt("[WAKS ERROR] %s: %s (Code: %d) \n", context,
 /// usage:     waks_strerror(err_code), err_code);
 /// usage:     LOG_FMT(LOG_ERROR,"ERROR", "Failed in %s with code %d",
-/// context,err_code) usage: }
+/// usage:     context,err_code) usage: }
 #define LOG_FMT(level, msg, fmt, ...)                                                              \
-    do                                                                                             \
-    {                                                                                              \
+    do {                                                                                           \
         log_msg(level, msg);                                                                       \
         io_print_fmt(fmt, __VA_ARGS__);                                                            \
         io_print(STR("\n"));                                                                       \
     } while (0)
 
-/// Puts the variadic arguements on the stack or in registers __builtin uses the
-/// compiler knowledge
+/// Puts the variadic arguements on the stack or in registers
+/// The __builtin uses the compiler knowledge
 typedef __builtin_va_list variadic_list;
 
 /// Acts as a pointer or an iterator to find those arguements in memory
@@ -32,13 +31,7 @@ typedef __builtin_va_list variadic_list;
 /// Resets the stack or cleans up the compiler internal state
 #define variadic_end(iterator) __builtin_va_end(iterator)
 
-typedef enum
-{
-    LOG_INFO,
-    LOG_WARN,
-    LOG_ERROR,
-    LOG_FATAL
-} LogLevel;
+typedef enum { LOG_INFO, LOG_WARN, LOG_ERROR, LOG_FATAL } LogLevel;
 
 static inline void log_msg(LogLevel level, String msg);
 static inline void dbg_print_(String str);
@@ -67,19 +60,15 @@ static inline void any_print(Any value)
         }
         with MatchInt(value, i)
         {
-            if (i == 0)
-            {
+            if (i == 0) {
                 io_print(from_cstr("0"));
-            }
-            else
-            {
+            } else {
                 char buf[20]; // Big enough for i64
                 int pos = 0;
                 u64 num = (i < 0) ? (u64)-i : (u64)i;
                 if (i < 0)
                     io_print(from_cstr("-"));
-                while (num > 0)
-                {
+                while (num > 0) {
                     buf[pos++] = (char)((num % 10) + '0');
                     num /= 10;
                 }
@@ -89,16 +78,12 @@ static inline void any_print(Any value)
         }
         with MatchUint(value, u)
         {
-            if (u == 0)
-            {
+            if (u == 0) {
                 io_print(from_cstr("0"));
-            }
-            else
-            {
+            } else {
                 char buf[20];
                 int pos = 0;
-                while (u > 0)
-                {
+                while (u > 0) {
                     buf[pos++] = (char)((u % 10) + '0');
                     u /= 10;
                 }
@@ -122,55 +107,45 @@ static inline void io_print_fmt(const char *fmt, ...)
     variadic_list arguements;
     variadic_start(arguements, fmt);
 
-    for (const char *pointer = fmt; *pointer != '\0'; pointer++)
-    {
-        if (*pointer != '%')
-        {
+    for (const char *pointer = fmt; *pointer != '\0'; pointer++) {
+        if (*pointer != '%') {
             io_print((String){.data = (u8 *)pointer, .length = 1});
             continue;
         }
 
         pointer++;
-        switch (*pointer)
-        {
-            case 's':
-            {
+        switch (*pointer) {
+            case 's': {
                 char *raw = variadic_args(arguements, char *);
                 any_print(AnyStr(from_cstr(raw)));
                 break;
             }
-            case 'd':
-            {
+            case 'd': {
                 i32 val = variadic_args(arguements, i32);
                 any_print(AnyInt(val));
                 break;
             }
-            case 'u':
-            {
+            case 'u': {
                 u64 val = variadic_args(arguements, u64);
                 any_print(AnyUint(val));
                 break;
             }
-            case 'c':
-            {
+            case 'c': {
                 // variadic_args promotes char to int
                 u8 c = (u8)variadic_args(arguements, int);
                 any_print(AnyChar(c));
                 break;
             }
-            case 'x':
-            {
+            case 'x': {
                 u64 val = variadic_args(arguements, u64);
                 io_print_hex(val); // Reuse your existing hex function
                 break;
             }
-            case '%':
-            {
+            case '%': {
                 any_print(AnyChar('%'));
                 break;
             }
-            default:
-            {
+            default: {
                 io_print(STR("?"));
                 break;
             }
@@ -181,20 +156,23 @@ static inline void io_print_fmt(const char *fmt, ...)
 
 static inline void log_msg(LogLevel level, String msg)
 {
-    switch (level)
-    {
-        case LOG_INFO:
+    switch (level) {
+        case LOG_INFO: {
             io_print(STR("[INFO] "));
             break;
-        case LOG_WARN:
+        }
+        case LOG_WARN: {
             io_print(STR("[WARN] "));
             break;
-        case LOG_ERROR:
+        }
+        case LOG_ERROR: {
             io_print(STR("[ERROR] "));
             break;
-        case LOG_FATAL:
+        }
+        case LOG_FATAL: {
             io_print(STR("[FATAL] "));
             break;
+        }
     }
     io_print(msg);
     io_print(STR("\n"));
@@ -230,8 +208,7 @@ static inline void io_print_hex(u64 value)
     buf[1] = 'x';
 
     // Print all 16 digits for consistent memory address debugging
-    for (int i = 15; i >= 0; i--)
-    {
+    for (int i = 15; i >= 0; i--) {
         buf[i + 2] = hex_chars[(value >> (i * 4)) & 0xF];
     }
 

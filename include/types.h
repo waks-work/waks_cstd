@@ -78,27 +78,16 @@ COMPILER_PRAGMA(GCC diagnostic error "-Wimplicit-fallthrough")
 #define with break;
 
 typedef enum WaksResult WaksResult;
-enum WaksResult
-{
+enum WaksResult {
 #define X(code, string) code,
 #include "waks_error.inc"
 #undef X
     WAKS_ERR_COUNT
 };
 
-enum any_tag
-{
-    _tag_none,
-    _tag_str,
-    _tag_i64,
-    _tag_u64,
-    _tag_char,
-    _tag_bool,
-    _tag_waks_err
-};
+enum any_tag { _tag_none, _tag_str, _tag_i64, _tag_u64, _tag_char, _tag_bool, _tag_waks_err };
 
-union any_union
-{
+union any_union {
     String _str;
     i64 _i64;
     u64 _u64;
@@ -230,8 +219,7 @@ static inline String from_cstr(char *str)
 
 static inline const char *waks_strerror(WaksResult error)
 {
-    switch (error)
-    {
+    switch (error) {
 #define X(code, string)                                                                            \
     case code:                                                                                     \
         return string;

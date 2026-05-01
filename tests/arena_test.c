@@ -1,17 +1,16 @@
 #include "../include/wt_io.h"
+#include "test.h"
 
 void test_vector()
 {
     Arena *arena = ArenaAlloc();
-    WITH_ARENA(arena)
-    {
+    WITH_ARENA (arena) {
         Vector vector = vector_init(arena, 2, sizeof(Any), 0);
         vector_push(arena, &vector, AnyInt(100));
         vector_push(arena, &vector, AnyInt(300));
         vector_insert(arena, &vector, 1, AnyInt(200));
 
-        for (usize i = 0; i < vector.length; i++)
-        {
+        for (usize i = 0; i < vector.length; i++) {
             Any item = vector_get_copy(arena, &vector, i);
             match(item)
             {
@@ -26,6 +25,66 @@ void test_vector()
     ArenaRelease(arena);
 }
 
+void test_arena_basics()
+{
+    Arena *arena = ArenaAlloc();
+
+    TEST ("Verifying 16-byte alignment of BoxAlloc") {
+        Handle h1 = BoxAlloc(arena, 1, 100);
+        Handle h2 = BoxAlloc(arena, 1, 100);
+        // Ensure the distance between boxes respects your ALIGN_16 macro
+        ASSERT_EQ_INT(((h2.offset - h1.offset) % 16), 0);
+    }
+
+    TEST ("Handling Out-of-Memory gracefully") {
+        // Try to allocate a box larger than the remaining committed space
+        Handle big = BoxAlloc(arena, arena->commited + 1, 100);
+        TEST_ASSERT(big.version == 0, "Arena should return null handle on OOM");
+    }
+
+    ArenaRelease(arena);
+}
+
+void run_arena_suite()
+{
+    Arena *arena = ArenaAlloc();
+
+    TEST ("Stale handles must fail to borrow") {
+        u32 user = 123;
+        Handle h1 = BoxAlloc(arena, 64, user);
+
+        HandleRelease(arena, h1);
+        void *ptr = HandleBorrow(arena, h1, user);
+
+        TEST_ASSERT(ptr == NULL, "Borrowing a released handle succeeded (Security Risk)");
+    }
+
+    TEST ("Out of memory returns invalid handle") {
+        // Attempt to allocate more than the arena capacity
+        Handle huge = BoxAlloc(arena, arena->commited + 1024, 0);
+        ASSERT_EQ_INT(huge.version, 0);
+    }
+
+    ArenaRelease(arena);
+}
+
+void test_handle_safety()
+{
+    Arena *arena = ArenaAlloc();
+    u32 user = 777;
+
+    TEST ("Version increment after Release") {
+        Handle h1 = BoxAlloc(arena, 64, user);
+        u16 v1 = h1.version;
+        HandleRelease(arena, h1);
+        // Version should remain the same in the handle, but be invalid in the header
+        void *ptr = HandleBorrow(arena, h1, user);
+        TEST_ASSERT(ptr == NULL, "Stale handle should not be borrowable");
+    }
+
+    ArenaRelease(arena);
+}
+
 void test_with_defer()
 {
     Arena *arena = ArenaAlloc();
@@ -35,14 +94,18 @@ void test_with_defer()
     Handle h1 = BoxAlloc(arena, 64, user);
 
     // Borrow and immediately DEFER the release
-    void *ptr1 = HandleBorrow(arena, h1, user);
-    HandleDefer(arena, h1); // Registered for cleanup
 
-    ASSERT(ptr1 != NULL);
+    {
+        void *ptr1 = HandleBorrow(arena, h1, user);
+        HandleDefer(arena, h1); // Registered for cleanup
+        ASSERT(ptr1 != NULL);
+    }
 
     // You can borrow multiple times
-    HandleBorrow(arena, h1, user);
-    HandleDefer(arena, h1); // Registered again
+    {
+        HandleBorrow(arena, h1, user);
+        HandleDefer(arena, h1); // Registered again
+    }
 
     // No need to call HandleRelease() manually anymore!
     dbg_print("Doing work without manual release...\n");

@@ -96,13 +96,11 @@ static inline long syscall6(long n, long a1, long a2, long a3, long a4, long a5,
 
 // Manually declare Kernel functions to avoid windows.h
 #    ifdef __cpluscplus
-extern "C"
-{
+extern "C" {
 #    endif
-    void *__stdcall VirtualAlloc(void *lpAddress, usize dwSize, u32 flAllocationType,
-                                 u32 flProtect);
-    i32 __stdcall VirtualFree(void *lpAddress, usize dwSize, u32 dwFreeType);
-    void __stdcall ExitProcess(u32 ExitCode);
+void *__stdcall VirtualAlloc(void *lpAddress, usize dwSize, u32 flAllocationType, u32 flProtect);
+i32 __stdcall VirtualFree(void *lpAddress, usize dwSize, u32 dwFreeType);
+void __stdcall ExitProcess(u32 ExitCode);
 #    ifdef __cpluscplus
 }
 #    endif
@@ -140,8 +138,7 @@ static inline void dbg_print_int(i16 n);
 
 /// ASSERT:  ASSERT(needed_space <= arena->capacity);
 #define PANIC_MSG(msg)                                                                             \
-    do                                                                                             \
-    {                                                                                              \
+    do {                                                                                           \
         dbg_print("[PANIC] ");                                                                     \
         dbg_print(msg);                                                                            \
         dbg_print(" at " __FILE__ ":");                                                            \
@@ -151,8 +148,7 @@ static inline void dbg_print_int(i16 n);
 
 #undef ASSERT
 #define ASSERT(cond)                                                                               \
-    do                                                                                             \
-    {                                                                                              \
+    do {                                                                                           \
         if (!(cond))                                                                               \
             PANIC_MSG(#cond);                                                                      \
     } while (0)
@@ -248,24 +244,21 @@ static inline void dbg_print_int(i16 n);
 /// usage: foreach_if(u8, page, mem_region, is_page_free(page),
 /// mark_allocated(page))
 #define foreach_if(type, item, slice, condition, action)                                           \
-    foreach (type, item, slice)                                                                    \
+    foreach(type, item, slice)                                                                     \
     {                                                                                              \
-        if (!(condition))                                                                          \
-        {                                                                                          \
+        if (!(condition)) {                                                                        \
             action;                                                                                \
         }                                                                                          \
     }
 
 /// usage: foreach_filter(u32, x, slice, *x > 10) { dbg_print_int(*x);}
 #define foreach_filter(type, item, slice, condition)                                               \
-    foreach (type, item, slice)                                                                    \
-        if (!(condition))                                                                          \
-            continue;                                                                              \
-        else /// condition will be executed here
+    foreach(type, item, slice) if (!(condition)) continue;                                         \
+    else /// condition will be executed here
 
 /// usage: foreach_map(u32, x,slice, *x *= 2);
 #define foreach_map(type, item, slice, expression)                                                 \
-    foreach (type, item, slice)                                                                    \
+    foreach(type, item, slice)                                                                     \
     {                                                                                              \
         expression;                                                                                \
     }
@@ -284,10 +277,10 @@ static inline void dbg_print_int(i16 n);
 #define foreach_find(type, item, head, condition, result_assign)                                   \
     foreach_node(type, item, head)                                                                 \
     {                                                                                              \
-        if (condition)                                                                             \
-        {                                                                                          \
+        if (condition) {                                                                           \
             result_assign;                                                                         \
             break;                                                                                 \
+            -                                                                                      \
         }                                                                                          \
     }
 
@@ -431,8 +424,7 @@ static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize mi
 extern _Thread_local Arena *current_arena;
 static inline void _auto_release_handle(Handle *handle)
 {
-    if (!current_arena)
-    {
+    if (!current_arena) {
         dbg_print("KERNEL PANIC: ScopeHandle used without active Arena!\n");
         return;
     }
@@ -443,8 +435,7 @@ static inline void _auto_release_handle(Handle *handle)
 static inline void _raii_release_now(void *pointer)
 {
     void **pointer_to_ptr = (void **)pointer;
-    if (*pointer_to_ptr && current_arena)
-    {
+    if (*pointer_to_ptr && current_arena) {
         BoxHeader *header = ((BoxHeader *)*pointer_to_ptr) - 1;
         Handle handle = {.offset = (u8 *)header - current_arena->memory,
                          .version = header->version};
@@ -455,8 +446,7 @@ static inline void _raii_release_now(void *pointer)
 static inline void _raii_release_deferred(void *pointer)
 {
     void **pointer_to_ptr = (void **)pointer;
-    if (*pointer_to_ptr && current_arena)
-    {
+    if (*pointer_to_ptr && current_arena) {
         BoxHeader *header = ((BoxHeader *)*pointer_to_ptr) - 1;
         Handle handle = {.offset = (u8 *)header - current_arena->memory,
                          .version = header->version};
@@ -491,8 +481,7 @@ static inline Any vector_get_copy(Arena *arena, Vector *vector, usize index)
     if (index >= vector->length)
         return AnyNone();
     Any result = AnyNone();
-    WITH_ARENA(arena)
-    {
+    WITH_ARENA (arena) {
         ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
         if (data_ptr)
             result = data_ptr[index];
@@ -504,14 +493,12 @@ static inline void vector_push(Arena *arena, Vector *vector, Any value)
 {
     vector_ensure_capacity(arena, vector, vector->length + 1);
 
-    WITH_ARENA(arena)
-    {
+    WITH_ARENA (arena) {
         ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
 
         if (!data_ptr)
             PANIC_MSG("Vector Push Failed: Handle Corruption or mismatch.");
-        if (data_ptr)
-        {
+        if (data_ptr) {
             data_ptr[vector->length] = value;
             vector->length += 1;
         }
@@ -525,13 +512,11 @@ static inline Any vector_pop(Arena *arena, Vector *vector)
 
     Any result = AnyNone();
 
-    WITH_ARENA(arena)
-    {
+    WITH_ARENA (arena) {
         ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
         if (!data_ptr)
             PANIC_MSG("Vector pop failed: Borrow denied");
-        if (data_ptr)
-        {
+        if (data_ptr) {
             vector->length -= 1;
             result = data_ptr[vector->length];
             // data_ptr[vector->length] = AnyNone();
@@ -547,8 +532,7 @@ static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any 
 
     vector_ensure_capacity(arena, vector, vector->length + 1);
 
-    WITH_ARENA(arena)
-    {
+    WITH_ARENA (arena) {
         ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
         if (!data_ptr)
             PANIC_MSG("Couldn't Insert: Failed to Borrow");
@@ -566,8 +550,7 @@ static inline void vector_remove(Arena *arena, Vector *vector, usize index)
     if (index >= vector->length)
         return;
 
-    WITH_ARENA(arena)
-    {
+    WITH_ARENA (arena) {
         ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
         if (!data_ptr)
             PANIC_MSG("Couldn't Insert: Failed to Borrow");
@@ -594,15 +577,12 @@ static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize mi
 
     Handle new_handle = BoxAlloc(arena, new_capacity * sizeof(Any), vector->user_id);
 
-    WITH_ARENA(arena)
-    {
+    WITH_ARENA (arena) {
         ScopedBorrow(Any, old_data, vector->data, vector->user_id);
         ScopedBorrow(Any, new_data, new_handle, vector->user_id);
 
-        if (old_data && new_data)
-        {
-            for (usize i = 0; i < vector->length; i++)
-            {
+        if (old_data && new_data) {
+            for (usize i = 0; i < vector->length; i++) {
                 new_data[i] = old_data[i];
             }
         }
@@ -654,8 +634,7 @@ static inline void *ArenaPush(Arena *arena, u64 size)
     u64 needed_space = next_pos + (arena->defer_count * sizeof(Handle)) + 256;
     ASSERT(needed_space <= arena->capacity);
 
-    if (needed_space > arena->commited)
-    {
+    if (needed_space > arena->commited) {
         u64 commit_needed = needed_space - arena->commited;
         u64 commit_aligned = ALIGN_16(commit_needed + arena->pagesize - 1) & ~(arena->pagesize - 1);
 
@@ -688,8 +667,7 @@ static inline void ArenaSetPosBack(Arena *arena, u64 position)
     ASSERT(position <= arena->position);
     u64 rounded_position = ALIGN_16(position + arena->pagesize - 1) & ~(arena->pagesize - 1);
 
-    if (rounded_position < arena->commited)
-    {
+    if (rounded_position < arena->commited) {
 #if defined(__linux)
         syscall6(SYS_madvise, (long)(arena->memory + rounded_position),
                  arena->commited - rounded_position, MADV_DONTNEED, 0, 0, 0);
@@ -704,8 +682,7 @@ static inline void ArenaSetPosBack(Arena *arena, u64 position)
 
 static inline void ArenaRelease(Arena *arena)
 {
-    if (arena)
-    {
+    if (arena) {
 #if defined(__linux)
         syscall6(SYS_munmap, (long)arena->memory, arena->capacity, 0, 0, 0, 0);
 #elif defined(_WIN32) || defined(_WIN64)
@@ -717,8 +694,7 @@ static inline void ArenaRelease(Arena *arena)
 static inline void ArenaReset(Arena *arena)
 {
     // process based on pagewide boundary
-    for (u32 i = 1; i <= arena->defer_count; i++)
-    {
+    for (u32 i = 1; i <= arena->defer_count; i++) {
         u64 defer_offset = arena->commited - (i * sizeof(Handle));
         Handle *handle_ptr = (Handle *)(arena->memory + defer_offset);
         BoxHeader *header = (BoxHeader *)(arena->memory + handle_ptr->offset);
@@ -745,8 +721,7 @@ static inline void ArenaReset(Arena *arena)
     // whatever is newly allocated in this space.
     u64 start_position = ALIGN_16(sizeof(Arena));
 
-    if (arena->commited > start_position)
-    {
+    if (arena->commited > start_position) {
         u64 size_to_reclaim = arena->commited - start_position;
 #if defined(__linux)
         syscall6(SYS_madvise, (long)(arena->memory + start_position), size_to_reclaim,
@@ -862,12 +837,9 @@ Handle HandleMove(Arena *arena, Handle handle, u32 old_owner, u32 new_owner)
 static inline void HandleRelease(Arena *arena, Handle handle)
 {
     BoxHeader *header = (BoxHeader *)(arena->memory + handle.offset);
-    if (header->borrows == -1)
-    {
+    if (header->borrows == -1) {
         header->borrows = 0;
-    }
-    else if (header->borrows > 0)
-    {
+    } else if (header->borrows > 0) {
 #ifdef CONCURRENT_MODE
         __atomic_fetch_sub(&header->borrows, 1, ATOMIC_SEQ_CST);
 #else
@@ -891,8 +863,7 @@ static inline void HandleDefer(Arena *arena, Handle handle)
     if (handle.version == 0)
         return;
 
-    if (arena->position + (arena->defer_count + 1) * sizeof(Handle) >= arena->commited)
-    {
+    if (arena->position + (arena->defer_count + 1) * sizeof(Handle) >= arena->commited) {
         ArenaPush(arena, arena->pagesize);
     }
 
@@ -918,27 +889,21 @@ static inline void dbg_print_int(i16 n)
 {
     char buf[16];
     int i = 0;
-    if (n == 0)
-    {
+    if (n == 0) {
         buf[i++] = '0';
-    }
-    else
-    {
-        if (n < 0)
-        {
+    } else {
+        if (n < 0) {
             buf[i++] = '-';
             n = -n;
         }
-        while (n > 0)
-        {
+        while (n > 0) {
             buf[i++] = (n % 10) + '0';
             n /= 10;
         }
     }
     buf[i] = '\0';
     // Simple reverse for display
-    for (int j = 0; j < i / 2; j++)
-    {
+    for (int j = 0; j < i / 2; j++) {
         char t = buf[j];
         buf[j] = buf[i - 1 - j];
         buf[i - 1 - j] = t;
