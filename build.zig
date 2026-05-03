@@ -17,6 +17,12 @@ pub fn build(b: *std.Build) void {
     });
     lib_mod.addIncludePath(b.path("include"));
 
+    lib_mod.addCSourceFiles(.{
+        .root = b.path("include"),
+        .files = &.{"context.s"},
+        .flags = &.{},
+    });
+
     const lib = b.addLibrary(.{
         .name = "waks_cstd",
         .root_module = lib_mod,

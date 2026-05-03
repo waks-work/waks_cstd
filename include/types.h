@@ -85,6 +85,26 @@ enum WaksResult {
     WAKS_ERR_COUNT
 };
 
+typedef struct WaksContext WaksContext;
+struct WaksContext
+{
+    u64 sp;               // Offset 0
+    u64 pc;               // Offset 8
+    u64 rbx;              // Offset 16
+    u64 rbp;              // Offset 24
+    u64 r12;              // Offset 32
+    u64 r13;              // Offset 40
+    u64 r14;              // Offset 48
+    u64 r15;              // Offset 56
+    u64 arena_checkpoint; // Offset 64
+    i32 error_code;       // Offset 72
+};
+
+extern _Thread_local WaksContext global_panic_env;
+
+__attribute__((returns_twice)) extern int waks_save_state(void);
+extern void waks_load_state(void);
+
 enum any_tag { _tag_none, _tag_str, _tag_i64, _tag_u64, _tag_char, _tag_bool, _tag_waks_err };
 
 union any_union {
