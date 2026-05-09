@@ -100,7 +100,7 @@ struct WaksContext
     i32 error_code;       // Offset 72
 };
 
-extern _Thread_local WaksContext global_panic_env;
+extern WaksContext global_panic_env;
 
 __attribute__((returns_twice)) extern int waks_save_state(void);
 extern void waks_load_state(void);
@@ -131,30 +131,34 @@ typedef struct
 ///     }
 /// }
 #define MatchStr(v, name)                                                                          \
-    case _tag_str:                                                                                 \
+    case _tag_str:;                                                                                \
         String name = {.data = _EXTRACT_PTR((v)._slot0), .length = (usize)(v)._slot1};
 
 /// Any item = vector_get(arena, &v, i);
 /// match(item) { MatchInt(item, val) { dbg_print_int((i16)val); } with;
 /// default: break; }
 #define MatchInt(v, name)                                                                          \
-    case _tag_i64:                                                                                 \
+    case _tag_i64:;                                                                                \
         i64 name = (i64)(((i64)((v)._slot0 & _PTR_MASK) << 16) >> 16);
+
 #define MatchUint(v, name)                                                                         \
-    case _tag_u64:                                                                                 \
+    case _tag_u64:;                                                                                \
         u64 name = (u64)((v)._slot0 & _PTR_MASK) | ((u64)(v)._slot1 << 48);
+
 #define MatchChar(v, name)                                                                         \
-    case _tag_char:                                                                                \
+    case _tag_char:;                                                                               \
         u8 name = (u8)(((v)._slot0 & 0xFF));
+
 #define MatchBool(v, name)                                                                         \
-    case _tag_bool:                                                                                \
+    case _tag_bool:;                                                                               \
         b8 name = (b8)((v)._slot0 & 0x1);
-#define MatchNone(v) case _tag_none:
+
+#define MatchNone(v) case _tag_none:;
 
 /// Any result = some_logic();
 /// match(result) { MatchWaks(result, err) { return err; } with; }
 #define MatchWaks(v, name)                                                                         \
-    case _tag_waks_err:                                                                            \
+    case _tag_waks_err:;                                                                           \
         WaksResult name = (WaksResult)((v)._slot0 & _PTR_MASK);
 
 static inline Any AnyStr(String str);

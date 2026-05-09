@@ -1,41 +1,45 @@
-section .text 
-global waks_save_state
-global waks_load_state
-extern global_panic_env
+.section .text
+.global waks_save_state
+.global waks_load_state
 
 waks_save_state:
-    ;; at function call the pc is at rsp 
-    mov rax, [rsp]
-    mov [rel global_panic_env + 8], rax ;; the offset 8 to .ip
+    # Save Return Address (PC)
+    # AT&T syntax: mov (src), dest
+    movq (%rsp), %rax
+    movq %rax, global_panic_env@GOTPCREL(%rip)
+    movq global_panic_env@GOTPCREL(%rip), %rdx
+    movq %rax, 8(%rdx)
 
-    ;; save the rsp as it was before the  call (rsp+8)
-    lea rax, [rsp + 8]
-    mov [rel global_panic_env + 0], rax ;; offset 0 is at .sp
-    
-    ;; save the rbp and other callee-saved registers
-    mov [rel global_panic_env + 16], rbx
-    mov [rel global_panic_env + 24], rbp
-    mov [rel global_panic_env + 32], r12
-    mov [rel global_panic_env + 40], r13
-    mov [rel global_panic_env + 48], r14
-    mov [rel global_panic_env + 56], r15
+    # Save Stack Pointer (SP) as it was before the call
+    leaq 8(%rsp), %rax
+    movq %rax, 0(%rdx)
 
-    xor rax, rax  ; return 0
+    # Save Callee-Saved Registers
+    movq %rbx, 16(%rdx)
+    movq %rbp, 24(%rdx)
+    movq %r12, 32(%rdx)
+    movq %r13, 40(%rdx)
+    movq %r14, 48(%rdx)
+    movq %r15, 56(%rdx)
 
+    xorq %rax, %rax
     ret
 
 waks_load_state:
-   mov rsp, [rel global_panic_env] ; restore the rsp
-   mov rbp, [rel global_panic_env + 24]
+    movq global_panic_env@GOTPCREL(%rip), %rdx
+    # Restore RSP and RBP
+    movq 0(%rdx), %rsp
+    movq 24(%rdx), %rbp
 
-    ;; restore the rbp and other callee-saved registers
-    mov rbx, [rel global_panic_env + 16]
-    mov r12, [rel global_panic_env + 32]
-    mov r13, [rel global_panic_env + 40]
-    mov r14, [rel global_panic_env + 48]
-    mov r15, [rel global_panic_env + 56] 
+    #  Restore other Callee-Saved Registers
+    movq 16(%rdx), %rbx
+    movq 32(%rdx), %r12
+    movq 40(%rdx), %r13
+    movq 48(%rdx), %r14
+    movq 56(%rdx), %r15
 
-   ;; restore the error code to eax
-   mov eax, [rel global_panic_env + 72] ; offset is at 16
-   jmp [rel global_panic_env + 8]
+    # Restore error code to EAX (return value)
+    movl 72(%rdx), %eax
 
+    # Jump back to the saved PC
+    jmp *8(%rdx)

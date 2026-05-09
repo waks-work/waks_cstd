@@ -41,59 +41,27 @@ static inline void io_print_u64(u64 value);
 static inline void io_print_fmt(const char *fmt, ...);
 static inline void any_print(Any val);
 
-_Thread_local WaksContext global_panic_env;
-
-/// Arena *arena = ArenaAlloc();
-/// WaksResult res = waks_pcall(arena, test_risky_logic, arena);
-/// if (res != WAKS_OK) { -> no manual cleanup needed as the arena is already rolled up
-///    LOG_FMT(LOG_ERROR, "CATCH", "Code failed with: %s", waks_strerror(res));
-/// }
-WaksResult waks_pcall(Arena *arena, void (*unsafe_func)(void *), void *arg)
-{
-    u64 checkpoint = arena->position;
-    global_panic_env.arena_checkpoint = checkpoint;
-
-    int status = waks_save_state();
-    if (status == 0) {
-        /// SUCCESS PATH:
-        unsafe_func(arg);
-        return WAKS_OK;
-    } else {
-        /// RECOVERY PATH:
-        arena->position = global_panic_env.arena_checkpoint;
-        return (WaksResult)status;
-    }
-}
-
-/// void test_risky_logic(void *arg) {
-///    Arena *a = (Arena *)arg;
-///    u32 *data = ArenaPush(a, 1024);
-///    if (some_error_condition) waks_panic(WAKS_ERR_NOMEM);
-/// }
-void waks_panic(WaksResult error)
-{
-    global_panic_env.error_code = (int)error;
-    waks_load_state();
-}
-
 static inline void any_print(Any value)
 {
     match(value)
     {
-        with MatchStr(value, str)
+        MatchStr(value, str)
         {
             io_print(str);
         }
+        break;
 
-        with MatchChar(value, c)
+        MatchChar(value, c)
         {
             io_print((String){&c, 1});
         }
-        with MatchBool(value, b)
+        break;
+        MatchBool(value, b)
         {
             io_print(b ? from_cstr("true") : from_cstr("false"));
         }
-        with MatchInt(value, i)
+        break;
+        MatchInt(value, i)
         {
             if (i == 0) {
                 io_print(from_cstr("0"));
@@ -111,7 +79,8 @@ static inline void any_print(Any value)
                     io_print((String){(u8 *)&buf[--pos], 1});
             }
         }
-        with MatchUint(value, u)
+        break;
+        MatchUint(value, u)
         {
             if (u == 0) {
                 io_print(from_cstr("0"));
@@ -126,14 +95,17 @@ static inline void any_print(Any value)
                     io_print((String){(u8 *)&buf[--pos], 1});
             }
         }
-        with MatchNone(value)
+        break;
+        MatchNone(value)
         {
             io_print(from_cstr("none"));
         }
-        with MatchWaks(value, err)
+        break;
+        MatchWaks(value, err)
         {
             io_print(from_cstr((char *)waks_strerror(err)));
         }
+        break;
     }
 }
 
@@ -256,15 +228,5 @@ static inline void io_print_hex(u64 value)
 //    do { buf[i--] = (val % 10) + '0'; val /= 10; } while (val > 0);
 //    io_print((String){&buf[i + 1], (usize)(19 - i)});
 // }
-
-void example_use()
-{
-    Arena *arena = ArenaAlloc();
-    Handle handle = BoxAlloc(arena, sizeof(int) * 10000, 1);
-    io_print(STR("Allocated 10000 items at: "));
-    io_print_hex(handle.offset);
-    io_print(STR("\n"));
-    ArenaRelease(arena);
-}
 
 #endif
