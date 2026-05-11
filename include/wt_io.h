@@ -41,6 +41,7 @@ static inline void io_print_u64(u64 value);
 static inline void io_print_fmt(const char *fmt, ...);
 static inline void any_print(Any val);
 
+/* Caters for io arguements matched from any type */
 static inline void any_print(Any value)
 {
     match(value)
@@ -221,12 +222,5 @@ static inline void io_print_hex(u64 value)
 
     io_print((String){buf, 18});
 }
-
-// static void io_print_u64(u64 val) {
-//    u8 buf[20]; // Max digits for a 64-bit uint
-//    int i = 19;
-//    do { buf[i--] = (val % 10) + '0'; val /= 10; } while (val > 0);
-//    io_print((String){&buf[i + 1], (usize)(19 - i)});
-// }
 
 #endif

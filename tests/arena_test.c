@@ -105,14 +105,13 @@ void test_handle_safety()
     u32 user = 777;
 
     TEST ("Version increment after Release 2") {
-        u32 user = 123;
         Handle h1 = BoxAlloc(arena, 64, user);
 
         HandleRelease(arena, h1);
-        io_print_fmt("\n --> handle version: %d \n", h1.version);
+        io_print_fmt("\n -> handle version: %d \n", h1.version);
 
         void *ptr = HandleBorrow(arena, h1, user);
-        io_print_fmt("\n --> handle version: %d \n", h1.version);
+        io_print_fmt("\n -> handle version: %d \n", h1.version);
         TEST_ASSERT(ptr == NULL, "Borrowing with old version should fail");
     }
 

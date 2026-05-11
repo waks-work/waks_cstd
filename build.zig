@@ -41,7 +41,7 @@ pub fn build(b: *std.Build) void {
 
     unit_tests.root_module.addCSourceFiles(.{
         .root = b.path("tests"),
-        .files = &.{"arena_test.c"},
+        .files = &.{"arena_test.c"}, // TODO(waks-work): add debug flags and asan here during compilation
         .flags = &.{"-std=c11"}, // "-ffreestanding"
     });
     unit_tests.root_module.addIncludePath(b.path("include"));

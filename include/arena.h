@@ -305,7 +305,7 @@ static inline void dbg_print_int(i16 n);
 /// Sentinel: Null terminated strings or streams
 /// usage: foreach_ptr(char, c, my_string) { if(*c == 'A') ... }
 #define foreach_ptr(type, item, start_ptr)                                                         \
-    for (type *item = (type *)(start_ptr); item && *(char *)item != 0; item++)
+    for (type *item = (type *)(start_ptr); item && *item != (type)0; item++)
 
 /// This gives us : borrow -> use -> auto_release
 /// usage: foreach_borrow(u32, ptr, handle, 1) { *ptr = 42; }
@@ -431,6 +431,7 @@ static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize mi
 
 /// Context Management
 extern Arena *current_arena;
+/* allows for automatic release of handle i.e ScopedHandle (RAII like) */
 static inline void _auto_release_handle(Handle *handle)
 {
     if (!current_arena) {
@@ -441,6 +442,7 @@ static inline void _auto_release_handle(Handle *handle)
         HandleRelease(current_arena, *handle);
 }
 
+/* allows for automatic release of borrow i.e ScopedBorrow */
 static inline void _raii_release_now(void *pointer)
 {
     void **pointer_to_ptr = (void **)pointer;
@@ -467,12 +469,25 @@ __attribute__((aligned(16))) WaksContext global_panic_env;
 
 Arena *current_arena = NULL;
 
-/// Arena *arena = ArenaAlloc(GB(1));
-/// WaksResult res = waks_pcall(arena, test_risky_logic, arena);
-/// if (res != WAKS_OK) { -> no manual cleanup needed as the arena is already
-/// rolled up
-///    LOG_FMT(LOG_ERROR, "CATCH", "Code failed with: %s", waks_strerror(res));
-/// }
+/*
+ * Arena *arena = ArenaAlloc(GB(1));
+ * WaksResult res = waks_pcall(arena, test_risky_logic, arena);
+ * if (res != WAKS_OK) { -> no manual cleanup needed as the arena is already rolled up
+ *    LOG_FMT(LOG_ERROR, "CATCH", "Code failed with: %s", waks_strerror(res));
+ * }
+ *
+ * //example two
+ * WaksResult parse_config transaction(Arena *arena, const char *path) {
+ *   // On waks_panic call, arena->position is automatically restored to point before the call.
+ *   return waks_pcall(arena, (void (*)(void *))run_parser, (void *)path);
+ * }
+ * void run_parser(void *arg) {
+ *   Arena *temp = (Arena *)arg;
+ *   Config *cfg = ArenaPush(temp, sizeof(Config));
+ *   if (!load_file(temp, cfg)) waks_panic(WAKS_ERR_IO) // jumps out and cleans the arena instantly
+ * }
+ *
+ * */
 WaksResult waks_pcall(Arena *arena, void (*unsafe_func)(void *), void *arg)
 {
     u64 checkpoint = ArenaGetPos(arena);
@@ -548,11 +563,10 @@ static inline void vector_push(Arena *arena, Vector *vector, Any value)
          * ensure is is more secure
          * */
         if (!data_ptr)
-            return; // PANIC_MSG("Vector Push Failed: Handle Corruption or mismatch.");
-        if (data_ptr) {
-            data_ptr[vector->length] = value;
-            vector->length += 1;
-        }
+            return; // PANIC_MSG("Vector Push Failed: Handle Corruption or
+                    // mismatch.");
+        data_ptr[vector->length] = value;
+        vector->length += 1;
     }
 }
 
@@ -635,6 +649,11 @@ static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize mi
     if (vector->length > 0) {
         WITH_ARENA (arena) {
             ScopedBorrow(Any, old_data, vector->data, vector->user_id);
+            /*
+             * We don't use ScopeBorrow instead we use the raw HandleBorrowMut to prevent
+             * new_data from being cleared automatically at the end of the scope so we can
+             * clean it manually when we need to clean it up as expected.
+             * */
             Any *new_data = HandleBorrowMut(arena, new_handle, vector->user_id);
 
             if (old_data && new_data) {
@@ -655,11 +674,16 @@ Arena *ArenaAlloc(u64 capacity)
 {
     void *base = NULL;
 #if defined(__linux)
+    /*
+     * Ask the OS for a large chunk of the of the virtual memory but tells
+     * the hardware not to allocate physical RAM yet
+     * */
     base = (void *)syscall6(SYS_mmap, 0, capacity, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     if (base == MAP_FAILED || base == NULL)
         return NULL;
 
     Arena *arena = (Arena *)base;
+    /* Changes access from NOACCESS to READ && WRITE */
     syscall6(SYS_mprotect, (long)base, PAGESIZE, PROT_READ | PROT_WRITE, 0, 0, 0);
 
 #elif defined(_WIN32) || defined(_WIN64)
@@ -685,10 +709,15 @@ static inline void *ArenaPush(Arena *arena, u64 size)
 {
     u64 aligned_size = ALIGN_16(size);
     u64 next_pos = arena->position + aligned_size;
-    // 16 handles for safety
+
+    /* Safety Buffer: allocate last 256 bytes  of the page to the handle */
     u64 needed_space = next_pos + (arena->defer_count * sizeof(Handle)) + 256;
     ASSERT(needed_space <= arena->capacity);
 
+    /*
+     * We will allocate an extra memory page if the (needed_space + defer_count)
+     * is greater than a single pagesize(4KB)
+     * */
     if (needed_space > arena->commited) {
         u64 commit_needed = needed_space - arena->commited;
         u64 commit_aligned = ALIGN_16(commit_needed + arena->pagesize - 1) & ~(arena->pagesize - 1);
@@ -703,7 +732,6 @@ static inline void *ArenaPush(Arena *arena, u64 size)
                           PAGE_READWRITE))
             return NULL;
 #endif
-
         arena->commited += commit_aligned;
     }
 
@@ -717,6 +745,10 @@ u64 ArenaGetPos(Arena *arena)
     return arena->position;
 }
 
+/*
+ * TODO(waks-work): try to figure out how we can use defer_count either
+ * to increment or decrement or just leave it as it is after reset
+ * */
 static inline void ArenaSetPosBack(Arena *arena, u64 position)
 {
     ASSERT(position <= arena->position);
@@ -746,6 +778,10 @@ static inline void ArenaRelease(Arena *arena)
     }
 }
 
+/*
+ * Used to reset all the borrow count together for all the borrow
+ * we called HandleDefer on for a specific scope.
+ * */
 static inline void ArenaReset(Arena *arena)
 {
     // process based on pagewide boundary
