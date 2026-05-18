@@ -450,8 +450,8 @@ static inline b8 list_is_empty(ListNode *head);
 /// OPTION API
 static inline Option option_none(void);
 static inline Option option_some(Handle handle);
-static inline Handle option_unwrap(Option opt);
-static inline Handle option_unwrap_or(Option opt, Handle fallback);
+static inline Handle option_unwrap(Option *opt);
+static inline Handle option_unwrap_or(Option *opt, Handle fallback);
 
 /// Context Management
 extern Arena *current_arena;
@@ -515,6 +515,7 @@ Arena *current_arena = NULL;
  * }
  *
  * */
+
 WaksResult waks_pcall(Arena *arena, void (*unsafe_func)(void *), void *arg)
 {
     u64 checkpoint = ArenaGetPos(arena);
@@ -555,17 +556,31 @@ static inline Option option_some(Handle handle)
     return (Option){.value = handle, .has_value = true};
 }
 
-static inline Handle option_unwrap(Option opt)
+/*
+ * Think about passing by reference so that we know we are passing
+ * by reference and not by value */
+static inline Handle option_unwrap(Option *opt)
 {
-    if (!opt.has_value)
+    if (!opt)
+        return (Handle){0};
+
+    if (!opt->has_value)
+        /*
+         * TODO(waks-work):implement the panic issue and check the logic as it is
+         * needed and used in alot of places not just here and it may lead to issue it
+         * is the part returning segmentation fault
+         * */
         PANIC_MSG("Attempted to unwrap an Option(None)");
 
-    return opt.value;
+    return opt->value;
 }
 
-static inline Handle option_unwrap_or(Option opt, Handle fallback)
+/*
+ * Think about passing by reference so that we know we are passing
+ * by reference and not by value */
+static inline Handle option_unwrap_or(Option *opt, Handle fallback)
 {
-    return opt.has_value ? opt.value : fallback;
+    return opt->has_value ? opt->value : fallback;
 }
 
 /// DATA STRUCTURES METHOD IMPLEMENTATION

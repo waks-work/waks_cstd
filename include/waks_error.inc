@@ -28,3 +28,6 @@ X(WAKS_ERR_FULL,            "Operation failed: Fixed-size buffer is full")
 /* Concurency errors */
 X(WAKS_ERR_TIMEOUT,         "Synchronization primitive timed out")
 X(WAKS_ERR_DEADLOCK,        "Potential deadlock detected")
+
+/* IO errors */
+X(WAKS_ERR_IO,              "IO failed: Incorrect or corrupt user input and  output")
