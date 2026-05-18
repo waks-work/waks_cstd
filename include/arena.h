@@ -335,6 +335,14 @@ static inline void dbg_print_int(i16 n);
                                 (Any *)HandleBorrow(arena, vector.data, vector.user_id) + index)   \
                              : NULL)
 
+/*
+ * for (ListNode *curr = line_list; curr != NULL; curr = curr->next) {
+ *     EditorLine *line_data = container_of(curr, EditorLine, node);
+ *     (Do something with line_data->content...)
+ * }
+ */
+#define container_of(ptr, type, member) ((type *)((char *)(ptr) - (uintptr_t)&((type *)0)->member))
+
 /// ARENA STRUCTS
 
 typedef struct Arena Arena;
@@ -433,6 +441,18 @@ static inline void vector_remove(Arena *arena, Vector *vector, usize index);
 static inline void vector_clear(Vector *vector);
 static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap);
 
+/// Linked list API
+static inline void list_init(ListNode *node);
+static inline void list_push_back(ListNode **head, ListNode *new_node);
+static inline void list_remove(ListNode **head, ListNode *node);
+static inline b8 list_is_empty(ListNode *head);
+
+/// OPTION API
+static inline Option option_none(void);
+static inline Option option_some(Handle handle);
+static inline Handle option_unwrap(Option opt);
+static inline Handle option_unwrap_or(Option opt, Handle fallback);
+
 /// Context Management
 extern Arena *current_arena;
 /* allows for automatic release of handle i.e ScopedHandle (RAII like) */
@@ -523,7 +543,103 @@ void waks_panic(WaksResult error)
     waks_load_state();
 }
 
+/// OPTION API IMPLEMENTATION
+
+static inline Option option_none(void)
+{
+    return (Option){.value = {0, 0}, .has_value = false};
+}
+
+static inline Option option_some(Handle handle)
+{
+    return (Option){.value = handle, .has_value = true};
+}
+
+static inline Handle option_unwrap(Option opt)
+{
+    if (!opt.has_value)
+        PANIC_MSG("Attempted to unwrap an Option(None)");
+
+    return opt.value;
+}
+
+static inline Handle option_unwrap_or(Option opt, Handle fallback)
+{
+    return opt.has_value ? opt.value : fallback;
+}
+
 /// DATA STRUCTURES METHOD IMPLEMENTATION
+
+/* EXAMPLES:
+ * typedef struct { u32 id; char *content; ListNode node; } EditorLine;
+ *
+ * ListNode *line_list = NULL;
+ * EditorLine *line = ArenaPush(arena, sizeof(EditorLine));
+ * line->id = 1;
+ */
+
+/*
+* typedef struct {
+    char *name;
+    ListNode active_node;  // For the list of open files
+    ListNode history_node; // For the "recently closed" list
+    *
+ } File;
+ list_push_back(&active_files, &file->active_node);
+ list_push_back(&recent_history, &file->history_node);
+*/
+
+/* * list_init(&line->node); */
+static inline void list_init(ListNode *node)
+{
+    node->next = NULL;
+    node->prev = NULL;
+}
+
+/* list_push_back(&line_list, &line->node); */
+static inline void list_push_back(ListNode **head, ListNode *new_node)
+{
+    if (!new_node)
+        return;
+
+    if (*head == NULL) {
+        *head = new_node;
+        new_node->next = NULL;
+        new_node->prev = NULL;
+        return;
+    }
+
+    ListNode *curr = *head;
+    while (curr->next)
+        curr = curr->next;
+
+    curr->next = new_node;
+    new_node->prev = curr;
+    new_node->next = NULL;
+}
+/* list_remove(&line_list, &line->node); */
+static inline void list_remove(ListNode **head, ListNode *node)
+{
+    if (!head || !*head || !node)
+        return;
+
+    if (node->prev)
+        node->prev->next = node->next;
+    if (node->next)
+        node->next->prev = node->prev;
+
+    if (*head == node)
+        *head = node->next;
+
+    node->prev = NULL;
+    node->next = NULL;
+}
+
+static inline b8 list_is_empty(ListNode *head)
+{
+    return head == NULL;
+}
+
 static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id)
 {
     Vector list = {0};
@@ -785,7 +901,8 @@ static inline void ArenaSetPosBack(Arena *arena, u64 position)
 #elif defined(USE_STD_LIB)
         /*
          * This in context does nothing as seen in macro
-         * TODO(waks-work); may be check if there is any need of having this block of Code
+         * TODO(waks-work); may be check if there is any need of having this block
+         * of Code
          * */
         u64 size_to_free = arena->commited - rounded_position;
         OS_DECOMMIT(arena->memory + rounded_position, size_to_free);
