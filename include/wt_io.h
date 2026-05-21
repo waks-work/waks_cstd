@@ -2,6 +2,7 @@
 #define IO_H
 
 #include "arena.h"
+#include "types.h"
 
 #define STR(s) (String){(u8 *)s, sizeof(s) - 1}
 #define LOG(level, msg) log_msg(level, STR(msg))
@@ -11,20 +12,19 @@
 /// usage:     waks_strerror(err_code), err_code);
 /// usage:     LOG_FMT(LOG_ERROR,"ERROR", "Failed in %s with code %d",
 /// usage:     context,err_code) usage: }
-#define LOG_FMT(level, msg, fmt, ...)                                          \
-  do {                                                                         \
-    log_msg(level, msg);                                                       \
-    io_print_fmt(fmt, __VA_ARGS__);                                            \
-    io_print(STR("\n"));                                                       \
-  } while (0)
+#define LOG_FMT(level, msg, fmt, ...)                                                              \
+    do {                                                                                           \
+        log_msg(level, msg);                                                                       \
+        io_print_fmt(fmt, __VA_ARGS__);                                                            \
+        io_print(STR("\n"));                                                                       \
+    } while (0)
 
 /// Puts the variadic arguements on the stack or in registers
 /// The __builtin uses the compiler knowledge
 typedef __builtin_va_list variadic_list;
 
 /// Acts as a pointer or an iterator to find those arguements in memory
-#define variadic_start(iterator, last_arg)                                     \
-  __builtin_va_start(iterator, last_arg)
+#define variadic_start(iterator, last_arg) __builtin_va_start(iterator, last_arg)
 
 /// Grabs the data and moves forward
 #define variadic_args(iterator, type) __builtin_va_arg(iterator, type)
@@ -32,7 +32,7 @@ typedef __builtin_va_list variadic_list;
 /// Resets the stack or cleans up the compiler internal state
 #define variadic_end(iterator) __builtin_va_end(iterator)
 
-typedef enum { LOG_INFO, LOG_WARN, LOG_ERROR, LOG_FATAL } LogLevel;
+typedef enum { LOG_INFORMATION, LOG_WARNINGS, LOG_ERRORS, LOG_FATALS } LogLevel;
 
 static inline void log_msg(LogLevel level, String msg);
 static inline void dbg_print_(String str);
@@ -43,163 +43,204 @@ static inline void io_print_fmt(const char *fmt, ...);
 static inline void any_print(Any val);
 
 /* Caters for io arguements matched from any type */
-static inline void any_print(Any value) {
-  match(value) {
-    MatchStr(value, str) { io_print(str); }
-    break;
-
-    MatchChar(value, c) { io_print((String){&c, 1}); }
-    break;
-    MatchBool(value, b) {
-      io_print(b ? from_cstr("true") : from_cstr("false"));
-    }
-    break;
-    MatchInt(value, i) {
-      if (i == 0) {
-        io_print(from_cstr("0"));
-      } else {
-        char buf[20]; // Big enough for i64
-        int pos = 0;
-        u64 num = (i < 0) ? (u64)-i : (u64)i;
-        if (i < 0)
-          io_print(from_cstr("-"));
-        while (num > 0) {
-          buf[pos++] = (char)((num % 10) + '0');
-          num /= 10;
+static inline void any_print(Any value)
+{
+    match(value)
+    {
+        MatchStr(value, str)
+        {
+            io_print(str);
         }
-        while (pos > 0)
-          io_print((String){(u8 *)&buf[--pos], 1});
-      }
-    }
-    break;
-    MatchUint(value, u) {
-      if (u == 0) {
-        io_print(from_cstr("0"));
-      } else {
-        char buf[20];
-        int pos = 0;
-        while (u > 0) {
-          buf[pos++] = (char)((u % 10) + '0');
-          u /= 10;
+        break;
+
+        MatchChar(value, c)
+        {
+            io_print((String){&c, 1});
         }
-        while (pos > 0)
-          io_print((String){(u8 *)&buf[--pos], 1});
-      }
+        break;
+        MatchBool(value, b)
+        {
+            io_print(b ? from_cstr("true") : from_cstr("false"));
+        }
+        break;
+        MatchInt(value, i)
+        {
+            if (i == 0) {
+                io_print(from_cstr("0"));
+            } else {
+                char buf[20]; // Big enough for i64
+                int pos = 0;
+                u64 num = (i < 0) ? (u64)-i : (u64)i;
+                if (i < 0)
+                    io_print(from_cstr("-"));
+                while (num > 0) {
+                    buf[pos++] = (char)((num % 10) + '0');
+                    num /= 10;
+                }
+                while (pos > 0)
+                    io_print((String){(u8 *)&buf[--pos], 1});
+            }
+        }
+        break;
+        MatchUint(value, u)
+        {
+            if (u == 0) {
+                io_print(from_cstr("0"));
+            } else {
+                char buf[20];
+                int pos = 0;
+                while (u > 0) {
+                    buf[pos++] = (char)((u % 10) + '0');
+                    u /= 10;
+                }
+                while (pos > 0)
+                    io_print((String){(u8 *)&buf[--pos], 1});
+            }
+        }
+        break;
+        MatchNone(value)
+        {
+            io_print(from_cstr("none"));
+        }
+        break;
+        MatchWaks(value, err)
+        {
+            io_print(from_cstr((char *)waks_strerror(err)));
+        }
+        break;
+        MatchPtr(value, ptr)
+        {
+            if (ptr == NULL)
+                io_print(from_cstr("Invalid memory not allocated: ptr (null)"));
+            io_print(from_cstr("Memory allocated successfully: ptr (Ox)"));
+
+            uintptr_t addr = (uintptr_t)ptr;
+            char buf[16];
+            u64 pos = 0;
+
+            while (addr > 0) {
+                u64 rem = addr % 16;
+                buf[pos++] = (char)((rem < 10) ? (rem + '0') : (rem - 10 + 'a'));
+                addr /= 16;
+            }
+            while (pos > 0)
+                io_print((String){(u8 *)&buf[--pos], 1});
+        }
+        break;
     }
-    break;
-    MatchNone(value) { io_print(from_cstr("none")); }
-    break;
-    MatchWaks(value, err) { io_print(from_cstr((char *)waks_strerror(err))); }
-    break;
-  }
 }
 
-static inline void io_print_fmt(const char *fmt, ...) {
-  variadic_list arguements;
-  variadic_start(arguements, fmt);
+static inline void io_print_fmt(const char *fmt, ...)
+{
+    variadic_list arguements;
+    variadic_start(arguements, fmt);
 
-  for (const char *pointer = fmt; *pointer != '\0'; pointer++) {
-    if (*pointer != '%') {
-      io_print((String){.data = (u8 *)pointer, .length = 1});
-      continue;
-    }
+    for (const char *pointer = fmt; *pointer != '\0'; pointer++) {
+        if (*pointer != '%') {
+            io_print((String){.data = (u8 *)pointer, .length = 1});
+            continue;
+        }
 
-    pointer++;
-    switch (*pointer) {
-    case 's': {
-      char *raw = variadic_args(arguements, char *);
-      any_print(AnyStr(from_cstr(raw)));
-      break;
+        pointer++;
+        switch (*pointer) {
+            case 's': {
+                char *raw = variadic_args(arguements, char *);
+                any_print(AnyStr(from_cstr(raw)));
+                break;
+            }
+            case 'd': {
+                i32 val = variadic_args(arguements, i32);
+                any_print(AnyInt(val));
+                break;
+            }
+            case 'u': {
+                u64 val = variadic_args(arguements, u64);
+                any_print(AnyUint(val));
+                break;
+            }
+            case 'c': {
+                // variadic_args promotes char to int
+                u8 c = (u8)variadic_args(arguements, int);
+                any_print(AnyChar(c));
+                break;
+            }
+            case 'x': {
+                u64 val = variadic_args(arguements, u64);
+                io_print_hex(val); // Reuse your existing hex function
+                break;
+            }
+            case '%': {
+                any_print(AnyChar('%'));
+                break;
+            }
+            default: {
+                io_print(STR("?"));
+                break;
+            }
+        }
     }
-    case 'd': {
-      i32 val = variadic_args(arguements, i32);
-      any_print(AnyInt(val));
-      break;
-    }
-    case 'u': {
-      u64 val = variadic_args(arguements, u64);
-      any_print(AnyUint(val));
-      break;
-    }
-    case 'c': {
-      // variadic_args promotes char to int
-      u8 c = (u8)variadic_args(arguements, int);
-      any_print(AnyChar(c));
-      break;
-    }
-    case 'x': {
-      u64 val = variadic_args(arguements, u64);
-      io_print_hex(val); // Reuse your existing hex function
-      break;
-    }
-    case '%': {
-      any_print(AnyChar('%'));
-      break;
-    }
-    default: {
-      io_print(STR("?"));
-      break;
-    }
-    }
-  }
-  variadic_end(arguements);
+    variadic_end(arguements);
 }
 
-static inline void log_msg(LogLevel level, String msg) {
-  switch (level) {
-  case LOG_INFO: {
-    io_print(STR("[INFO] "));
-    break;
-  }
-  case LOG_WARN: {
-    io_print(STR("[WARN] "));
-    break;
-  }
-  case LOG_ERROR: {
-    io_print(STR("[ERROR] "));
-    break;
-  }
-  case LOG_FATAL: {
-    io_print(STR("[FATAL] "));
-    break;
-  }
-  }
-  io_print(msg);
-  io_print(STR("\n"));
+static inline void log_msg(LogLevel level, String msg)
+{
+    switch (level) {
+        case LOG_INFORMATION: {
+            io_print(STR("[INFO] "));
+            break;
+        }
+        case LOG_WARNINGS: {
+            io_print(STR("[WARN] "));
+            break;
+        }
+        case LOG_ERRORS: {
+            io_print(STR("[ERROR] "));
+            break;
+        }
+        case LOG_FATALS: {
+            io_print(STR("[FATAL] "));
+            break;
+        }
+    }
+    io_print(msg);
+    io_print(STR("\n"));
 }
 
-static inline void dbg_print_(String str) {
+static inline void dbg_print_(String str)
+{
 #if defined(__linux__)
-  syscall6(SYS_write, (long)str.data, (long)str.length, 0, 0, 0, 0);
+    syscall6(SYS_write, (long)str.data, (long)str.length, 0, 0, 0, 0);
 #endif
 }
 
-static inline void io_print(String str) {
+static inline void io_print(String str)
+{
 #if defined(__linux__)
-  // FD 1 is stdout. Your current code was passing data as the FD!
-  syscall6(SYS_write, 1, (long)str.data, (long)str.length, 0, 0, 0);
+    // FD 1 is stdout. Your current code was passing data as the FD!
+    syscall6(SYS_write, 1, (long)str.data, (long)str.length, 0, 0, 0);
 #elif defined(_WIN32) || defined(_WIN64)
-  // Windows uses WriteFile or WriteConsole
+    // Windows uses WriteFile or WriteConsole
 #else
-  u16 *vga_buffer = (u16 *)0x8000;
-  static int cursor_pos = 0;
-  for (usize i = 0; i < str.length; i++)
-    vga_buffer[cursor_pos++] = (u16)str.data[i] | (0x07 << 8);
+    u16 *vga_buffer = (u16 *)0x8000;
+    static int cursor_pos = 0;
+    for (usize i = 0; i < str.length; i++)
+        vga_buffer[cursor_pos++] = (u16)str.data[i] | (0x07 << 8);
 #endif
 }
 
-static inline void io_print_hex(u64 value) {
-  u8 buf[18];
-  static const u8 hex_chars[] = "0123456789ABCDEF";
-  buf[0] = '0';
-  buf[1] = 'x';
+static inline void io_print_hex(u64 value)
+{
+    u8 buf[18];
+    static const u8 hex_chars[] = "0123456789ABCDEF";
+    buf[0] = '0';
+    buf[1] = 'x';
 
-  // Print all 16 digits for consistent memory address debugging
-  for (int i = 15; i >= 0; i--) {
-    buf[i + 2] = hex_chars[(value >> (i * 4)) & 0xF];
-  }
+    // Print all 16 digits for consistent memory address debugging
+    for (int i = 15; i >= 0; i--) {
+        buf[i + 2] = hex_chars[(value >> (i * 4)) & 0xF];
+    }
 
-  io_print((String){buf, 18});
+    io_print((String){buf, 18});
 }
 
 #endif

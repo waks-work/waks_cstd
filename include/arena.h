@@ -567,8 +567,8 @@ static inline Handle option_unwrap(Option *opt)
     if (!opt->has_value)
         /*
          * TODO(waks-work):implement the panic issue and check the logic as it is
-         * needed and used in alot of places not just here and it may lead to issue it
-         * is the part returning segmentation fault
+         * needed and used in alot of places not just here and it may lead to issue
+         * it is the part returning segmentation fault
          * */
         PANIC_MSG("Attempted to unwrap an Option(None)");
 
