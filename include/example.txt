@@ -1,0 +1,247 @@
+
+// include/waks/mem/allocator.h
+#pragma once
+#include <stddef.h>
+
+typedef struct WaksAllocator WaksAllocator;
+
+// WaksAllocator alloc = {.alloc = arena_alloc_wrapper, .free = arena_free_wrapper, .context = arena};
+struct WaksAllocator
+{
+    // function pointer to the allocator wrapper
+    void *(*alloc)(void *context, size_t size, size_t alignment);
+    // function pointer to the free allocator 
+    void (*free)(void *context, void *ptr);
+    // Points to the specific Arena or Pool instance
+    void *context;
+};
+
+// include/waks/mem/arena.h
+#pragma once
+#include "allocator.h"
+
+typedef struct
+{
+    unsigned char *buffer;
+    size_t buffer_length;
+    size_t offset;
+} WaksArena;
+
+void waks_arena_init(WaksArena *arena, void *backing_buffer, size_t buffer_length);
+void *waks_arena_alloc(WaksArena *arena, size_t size, size_t alignment);
+void waks_arena_reset(WaksArena *arena);
+
+// This ties your Arena to the generic Allocator interface
+WaksAllocator waks_arena_as_allocator(WaksArena *arena);
+
+#include "waks/mem/arena.h"
+#include <stdint.h>
+
+// 1. Your standard, fast, type-safe arena allocation function
+void *waks_arena_alloc(WaksArena *arena, size_t size, size_t alignment)
+{
+    // Basic alignment math
+    uintptr_t current_ptr = (uintptr_t)arena->buffer + arena->offset;
+    uintptr_t offset = current_ptr % alignment;
+    if (offset != 0) {
+        arena->offset += (alignment - offset);
+    }
+
+    if (arena->offset + size > arena->buffer_length) {
+        return NULL; // Out of memory
+    }
+
+    void *ptr = &arena->buffer[arena->offset];
+    arena->offset += size;
+    return ptr;
+}
+
+// 2. The wrapper function matching the interface signature
+static void *arena_alloc_wrapper(void *context, size_t size, size_t alignment)
+{
+    // Cast the generic context pointer back to your specific type
+    WaksArena *arena = (WaksArena *)context;
+    return waks_arena_alloc(arena, size, alignment);
+}
+
+// 3. Arenas can't free individual blocks, so this is a no-op
+static void arena_free_wrapper(void *context, void *ptr)
+{
+    (void)context;
+    (void)ptr;
+    // Arenas only free via whole-arena resets!
+}
+
+// 4. The helper function that packages up the interface for the user
+WaksAllocator waks_arena_as_allocator(WaksArena *arena)
+{
+    WaksAllocator alloc = {
+        .alloc = arena_alloc_wrapper, .free = arena_free_wrapper, .context = arena};
+    return alloc;
+}
+
+// include/waks/mem/pool.h
+#pragma once
+#include "waks/mem/allocator.h"
+#include <stdint.h>
+
+typedef struct Node Node;
+struct Node
+{
+    Node *next;
+};
+
+typedef struct
+{
+    unsigned char *buffer;
+    size_t block_size;
+    Node *free_list;
+} WaksPool;
+
+void waks_pool_init(WaksPool *pool, void *backing_buffer, size_t buffer_length, size_t block_size);
+void *waks_pool_alloc(WaksPool *pool);
+void waks_pool_free(WaksPool *pool, void *ptr);
+
+WaksAllocator waks_pool_as_allocator(WaksPool *pool);
+
+// src/mem/pool.c
+#include "waks/mem/pool.h"
+
+{
+     Pool *pool = PoolInit(fifty_pools, MB(40));
+     PoolAllocate(arena, &pool);
+     PoolRelease(&mem_location);
+     PoolRealloc(&mem_location);
+     if ()
+}
+
+void waks_pool_init(WaksPool *pool, void *backing_buffer, size_t buffer_length, size_t block_size)
+{
+    // Ensure block size is at least big enough to hold a pointer for the free list
+    pool->block_size = block_size < sizeof(Node) ? sizeof(Node) : block_size;
+    pool->buffer = (unsigned char *)backing_buffer;
+    pool->free_list = NULL;
+
+    // Slice the raw backing buffer into discrete blocks and link them together
+    size_t num_blocks = buffer_length / pool->block_size;
+    for (size_t i = 0; i < num_blocks; i++) {
+        Node *node = (Node *)&pool->buffer[i * pool->block_size];
+        node->next = pool->free_list;
+        pool->free_list = node;
+    }
+}
+
+void *waks_pool_alloc(WaksPool *pool)
+{
+    if (pool->free_list == NULL)
+        return NULL; // Out of blocks!
+
+    // Pop a block from the top of the free list
+    Node *node = pool->free_list;
+    pool->free_list = node->next;
+    return (void *)node;
+}
+
+void waks_pool_free(WaksPool *pool, void *ptr)
+{
+    if (ptr == NULL)
+        return;
+
+    // Push the block back onto the free list
+    Node *node = (Node *)ptr;
+    node->next = pool->free_list;
+    pool->free_list = node;
+}
+
+// --- INTERFACE WRAPPERS ---
+
+static void *pool_alloc_wrapper(void *context, size_t size, size_t alignment)
+{
+    WaksPool *pool = (WaksPool *)context;
+    (void)alignment; // Pool sizes are static; tracking alignment per-alloc is skipped here
+
+    // Safety check: a pool can only handle allocations smaller or equal to its block size
+    if (size > pool->block_size)
+        return NULL;
+
+    return waks_pool_alloc(pool);
+}
+
+static void pool_free_wrapper(void *context, void *ptr)
+{
+    WaksPool *pool = (WaksPool *)context;
+    waks_pool_free(pool, ptr);
+}
+
+WaksAllocator waks_pool_as_allocator(WaksPool *pool)
+{
+    return (WaksAllocator){.alloc = pool_alloc_wrapper, .free = pool_free_wrapper, .context = pool};
+}
+
+// include/waks/containers/vector.h
+#pragma once
+#include "waks/mem/allocator.h"
+
+typedef struct
+{
+    int *data;
+    size_t length;
+    size_t capacity;
+    WaksAllocator allocator; // Store the interface instance
+} IntVector;
+
+IntVector int_vector_create(WaksAllocator alloc)
+{
+    return (IntVector){.data = NULL, .length = 0, .capacity = 0, .allocator = alloc};
+}
+
+void int_vector_push(IntVector *vec, int value)
+{
+    if (vec->length >= vec->capacity) {
+        size_t new_capacity = vec->capacity == 0 ? 4 : vec->capacity * 2;
+
+        // Use the universal allocator interface!
+        int *new_data =
+            vec->allocator.alloc(vec->allocator.context, new_capacity * sizeof(int), _Alignof(int));
+
+        if (!new_data)
+            return; // Allocation failed
+
+        // Copy old data across
+        for (size_t i = 0; i < vec->length; i++) {
+            new_data[i] = vec->data[i];
+        }
+
+        // Free the old pointer using the interface
+        if (vec->data) {
+            vec->allocator.free(vec->allocator.context, vec->data);
+        }
+
+        vec->data = new_data;
+        vec->capacity = new_capacity;
+    }
+
+    vec->data[vec->length++] = value;
+}
+
+#include "waks/containers/vector.h"
+#include "waks/mem/arena.h"
+
+unsigned char kernel_memory_backing[1024];
+
+void example(void)
+{
+    // 1. Set up a physical arena allocator
+    WaksArena my_arena;
+    waks_arena_init(&my_arena, kernel_memory_backing, 1024);
+
+    // 2. Turn it into the generic allocator interface
+    WaksAllocator general_alloc = waks_arena_as_allocator(&my_arena);
+
+    // 3. Pass it into your vector
+    IntVector vec = int_vector_create(general_alloc);
+
+    // This pushes memory operations into the arena silently under the hood
+    int_vector_push(&vec, 42);
+    int_vector_push(&vec, 1337);
+}

@@ -129,23 +129,6 @@ static void os_panic()
 static inline void dbg_print(const char *str);
 static inline void dbg_print_int(i16 n);
 
-/// Allocation: Handle handle = BoxNew(arena, u32, owner_id);
-#define BoxNew(arena, type, owner) BoxAlloc(arena, sizeof(type), owner)
-
-/// Borrowing: type *ptr = BoxGet(arena, handle, caller_id);
-#define BoxGet(arena, type, handle, caller) (type *)HandleBorrow(arena, handle, caller)
-
-/// Mutable Borrowing: type *ptr = BoxGetMut(arena, handle, caller_id);
-#define BoxGetMut(arena, type, handle, caller) (type *)HandleBorrowMut(arena, handle, caller)
-
-/// Scratch macro: Usage: ArenaTempBlock(my_arena)
-///     {
-///          u8 * temp = ArenaPush(my_arena, 1024);
-///          //Do work... no need to call ArenaSetPosBack as the macro does
-///     }
-#define ArenaTempBlock(arena)                                                                      \
-    for (u64 _pos = ArenaGetPos(arena), _once = 1; _once; _once = 0, ArenaSetPosBack(arena, _pos))
-
 /// ASSERT:  ASSERT(needed_space <= arena->capacity);
 #define PANIC_MSG(msg)                                                                             \
     do {                                                                                           \
@@ -181,6 +164,23 @@ static inline void dbg_print_int(i16 n);
 #define CLR_BIT(reg, n) ((reg) &= ~BIT(n))
 #define GET_BIT(reg, n) ((reg) & BIT(n))
 #define GB(x) ((u64)(x) << 30)
+
+/// Allocation: Handle handle = BoxNew(arena, u32, owner_id);
+#define BoxNew(arena, type, owner) BoxAlloc(arena, sizeof(type), owner)
+
+/// Borrowing: type *ptr = BoxGet(arena, handle, caller_id);
+#define BoxGet(arena, type, handle, caller) (type *)HandleBorrow(arena, handle, caller)
+
+/// Mutable Borrowing: type *ptr = BoxGetMut(arena, handle, caller_id);
+#define BoxGetMut(arena, type, handle, caller) (type *)HandleBorrowMut(arena, handle, caller)
+
+/// Scratch macro: Usage: ArenaTempBlock(my_arena)
+///     {
+///          u8 * temp = ArenaPush(my_arena, 1024);
+///          //Do work... no need to call ArenaSetPosBack as the macro does
+///     }
+#define ArenaTempBlock(arena)                                                                      \
+    for (u64 _pos = ArenaGetPos(arena), _once = 1; _once; _once = 0, ArenaSetPosBack(arena, _pos))
 
 /// Automatic clean up RAAI
 ///  Arena *arena = ArenaAlloc((u64)GB(1));
@@ -336,12 +336,51 @@ static inline void dbg_print_int(i16 n);
                              : NULL)
 
 /*
+ * EXAMPLE: Vector<T>
+ * Vector nums = vector_init(arena, 8, sizeof(u32), uid);
+ * vector_push_t(arena, &nums, (u32)10);
+ * vector_push_t(arena, &nums, (u32)20);
+ */
+#define vector_push_t(arena, vec, value)                                                           \
+    do {                                                                                           \
+        AUTO _tmp = (value);                                                                       \
+        vector_push_raw(arena, vec, &_tmp);                                                        \
+    } while (0)
+
+/* u32 x = vector_get_t(arena, &nums, u32, 1); */
+#define vector_get_t(arena, vec, T, index) (*(T *)vector_get_raw(arena, vec, index))
+
+/*
  * for (ListNode *curr = line_list; curr != NULL; curr = curr->next) {
  *     EditorLine *line_data = container_of(curr, EditorLine, node);
  *     (Do something with line_data->content...)
  * }
  */
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - (uintptr_t)&((type *)0)->member))
+
+// void* ptr = ArenaPush(arena, 100);
+// defer(ArenaReset(arena)); // This runs automatically when the function ends
+// include/waks/core/defer.h
+// static inline void _waks_defer_cleanup(void (**)()) {
+//    (*ptr)();
+// }
+#define defer(code)                                                                                \
+    void _waks_internal_defer_##__LINE__()                                                         \
+    {                                                                                              \
+        code;                                                                                      \
+    }                                                                                              \
+    void (*_waks_internal_ptr_##__LINE__)(void) __attribute__((cleanup(_waks_defer_cleanup))) =    \
+        _waks_internal_defer_##__LINE__;
+
+
+/// ALLOCATOR STRUCTS 
+
+typedef struct WaksAllocator WaksAllocator;
+struct WaksAllocator {
+    void *(*alloc)(void *context, ssize size, ssize alignment);
+    void (*free)(void *context, void *ptr);
+    void *context;
+};
 
 /// ARENA STRUCTS
 
@@ -374,36 +413,6 @@ struct Handle
     u16 version;
 };
 
-/// DATA STRUCTURES STRUCTS
-
-typedef struct Vector Vector;
-struct Vector
-{
-    Handle data;    // Handle to the underlying array
-    usize capacity; // Total slots
-    usize length;   // Used slots
-    usize item_size;
-    u32 user_id; // Owner of the data
-};
-
-#define SLICE_CAST(type, string) ((type *)(string).ptr)
-
-/// Metadata stays inside the struct you want to link: no need for extra
-/// boxalloc
-typedef struct ListNode ListNode;
-struct ListNode
-{
-    ListNode *next;
-    ListNode *prev;
-};
-
-typedef struct Option Option;
-struct Option
-{
-    Handle value;
-    b8 has_value;
-};
-
 /// ARENA API/METHOD IMPLEMENTATION
 
 Arena *ArenaAlloc(u64 capacity);
@@ -414,400 +423,7 @@ static inline void ArenaRelease(Arena *arena);
 static inline void ArenaReset(Arena *arena);
 static inline void _auto_release_handle(Handle *handle);
 
-Handle BoxAlloc(Arena *arena, u32 size, u32 owner);
-static inline void *HandleBorrow(Arena *arena, Handle handle, u64 caller);
-static inline void *HandleBorrowMut(Arena *arena, Handle handle, u32 caller);
-Handle HandleMove(Arena *arena, Handle handle, u32 old_owner, u32 new_owner);
-static inline void HandleRelease(Arena *arena, Handle handle);
-static inline void HandleReleaseMut(Arena *arena, Handle handle);
-static inline void HandleDefer(Arena *arena, Handle handle);
-
-static inline void _auto_release_handle(Handle *handle);
-static inline void _raii_release_now(void *pointer);
-static inline void _raii_release_deferred(void *pointer);
-
-WaksResult waks_pcall(Arena *arena, void (*fn)(void *), void *arg);
-void waks_panic(WaksResult err);
-
-/// DATA STRUCTURES API
-
-static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id);
-static inline Any *vector_get(Arena *arena, Vector *vector, usize index);
-static inline Any vector_get_copy(Arena *arena, Vector *vector, usize index);
-static inline Any vector_pop(Arena *arena, Vector *vector);
-static inline void vector_push(Arena *arena, Vector *vector, Any value);
-static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value);
-static inline void vector_remove(Arena *arena, Vector *vector, usize index);
-static inline void vector_clear(Vector *vector);
-static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap);
-
-/// Linked list API
-static inline void list_init(ListNode *node);
-static inline void list_push_back(ListNode **head, ListNode *new_node);
-static inline void list_remove(ListNode **head, ListNode *node);
-static inline b8 list_is_empty(ListNode *head);
-
-/// OPTION API
-static inline Option option_none(void);
-static inline Option option_some(Handle handle);
-static inline Handle option_unwrap(Option *opt);
-static inline Handle option_unwrap_or(Option *opt, Handle fallback);
-
-/// Context Management
-extern Arena *current_arena;
-/* allows for automatic release of handle i.e ScopedHandle (RAII like) */
-static inline void _auto_release_handle(Handle *handle)
-{
-    if (!current_arena) {
-        dbg_print("KERNEL PANIC: ScopeHandle used without active Arena!\n");
-        return;
-    }
-    if (handle && handle->version > 0)
-        HandleRelease(current_arena, *handle);
-}
-
-/* allows for automatic release of borrow i.e ScopedBorrow */
-static inline void _raii_release_now(void *pointer)
-{
-    void **pointer_to_ptr = (void **)pointer;
-    if (*pointer_to_ptr && current_arena) {
-        BoxHeader *header = ((BoxHeader *)*pointer_to_ptr) - 1;
-        Handle handle = {.offset = (u8 *)header - current_arena->memory,
-                         .version = header->version};
-        HandleRelease(current_arena, handle);
-    }
-}
-
-static inline void _raii_release_deferred(void *pointer)
-{
-    void **pointer_to_ptr = (void **)pointer;
-    if (*pointer_to_ptr && current_arena) {
-        BoxHeader *header = ((BoxHeader *)*pointer_to_ptr) - 1;
-        Handle handle = {.offset = (u8 *)header - current_arena->memory,
-                         .version = header->version};
-        HandleDefer(current_arena, handle);
-    }
-}
-
-__attribute__((aligned(16))) WaksContext global_panic_env;
-
-Arena *current_arena = NULL;
-
-/*
- * Arena *arena = ArenaAlloc(GB(1));
- * WaksResult res = waks_pcall(arena, test_risky_logic, arena);
- * if (res != WAKS_OK) { -> no manual cleanup needed as the arena is already
- * rolled up LOG_FMT(LOG_ERROR, "CATCH", "Code failed with: %s",
- * waks_strerror(res));
- * }
- *
- * //example two
- * WaksResult parse_config transaction(Arena *arena, const char *path) {
- *   // On waks_panic call, arena->position is automatically restored to point
- * before the call. return waks_pcall(arena, (void (*)(void *))run_parser, (void
- * *)path);
- * }
- * void run_parser(void *arg) {
- *   Arena *temp = (Arena *)arg;
- *   Config *cfg = ArenaPush(temp, sizeof(Config));
- *   if (!load_file(temp, cfg)) waks_panic(WAKS_ERR_IO) // jumps out and cleans
- * the arena instantly
- * }
- *
- * */
-
-WaksResult waks_pcall(Arena *arena, void (*unsafe_func)(void *), void *arg)
-{
-    u64 checkpoint = ArenaGetPos(arena);
-    global_panic_env.arena_checkpoint = checkpoint;
-
-    int status = waks_save_state();
-    if (status == 0) {
-        /// SUCCESS PATH:
-        unsafe_func(arg);
-        return WAKS_OK;
-    } else {
-        /// RECOVERY PATH:
-        ArenaSetPosBack(arena, global_panic_env.arena_checkpoint);
-        return (WaksResult)status;
-    }
-}
-
-/// void test_risky_logic(void *arg) {
-///    Arena *a = (Arena *)arg;
-///    u32 *data = ArenaPush(a, 1024);
-///    if (some_error_condition) waks_panic(WAKS_ERR_NOMEM);
-/// }
-void waks_panic(WaksResult error)
-{
-    *((volatile int *)&global_panic_env.error_code) = (int)error;
-    waks_load_state();
-}
-
-/// OPTION API IMPLEMENTATION
-
-static inline Option option_none(void)
-{
-    return (Option){.value = {0, 0}, .has_value = false};
-}
-
-static inline Option option_some(Handle handle)
-{
-    return (Option){.value = handle, .has_value = true};
-}
-
-/*
- * Think about passing by reference so that we know we are passing
- * by reference and not by value */
-static inline Handle option_unwrap(Option *opt)
-{
-    if (!opt)
-        return (Handle){0};
-
-    if (!opt->has_value)
-        /*
-         * TODO(waks-work):implement the panic issue and check the logic as it is
-         * needed and used in alot of places not just here and it may lead to issue
-         * it is the part returning segmentation fault
-         * */
-        PANIC_MSG("Attempted to unwrap an Option(None)");
-
-    return opt->value;
-}
-
-/*
- * Think about passing by reference so that we know we are passing
- * by reference and not by value */
-static inline Handle option_unwrap_or(Option *opt, Handle fallback)
-{
-    return opt->has_value ? opt->value : fallback;
-}
-
-/// DATA STRUCTURES METHOD IMPLEMENTATION
-
-/* EXAMPLES:
- * typedef struct { u32 id; char *content; ListNode node; } EditorLine;
- *
- * ListNode *line_list = NULL;
- * EditorLine *line = ArenaPush(arena, sizeof(EditorLine));
- * line->id = 1;
- */
-
-/*
-* typedef struct {
-    char *name;
-    ListNode active_node;  // For the list of open files
-    ListNode history_node; // For the "recently closed" list
-    *
- } File;
- list_push_back(&active_files, &file->active_node);
- list_push_back(&recent_history, &file->history_node);
-*/
-
-/* * list_init(&line->node); */
-static inline void list_init(ListNode *node)
-{
-    node->next = NULL;
-    node->prev = NULL;
-}
-
-/* list_push_back(&line_list, &line->node); */
-static inline void list_push_back(ListNode **head, ListNode *new_node)
-{
-    if (!new_node)
-        return;
-
-    if (*head == NULL) {
-        *head = new_node;
-        new_node->next = NULL;
-        new_node->prev = NULL;
-        return;
-    }
-
-    ListNode *curr = *head;
-    while (curr->next)
-        curr = curr->next;
-
-    curr->next = new_node;
-    new_node->prev = curr;
-    new_node->next = NULL;
-}
-/* list_remove(&line_list, &line->node); */
-static inline void list_remove(ListNode **head, ListNode *node)
-{
-    if (!head || !*head || !node)
-        return;
-
-    if (node->prev)
-        node->prev->next = node->next;
-    if (node->next)
-        node->next->prev = node->prev;
-
-    if (*head == node)
-        *head = node->next;
-
-    node->prev = NULL;
-    node->next = NULL;
-}
-
-static inline b8 list_is_empty(ListNode *head)
-{
-    return head == NULL;
-}
-
-static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id)
-{
-    Vector list = {0};
-    list.user_id = user_id;
-    list.capacity = initial_cap;
-    list.length = 0;
-    list.item_size = (usize)item_size;
-    list.data = BoxAlloc(arena, initial_cap * sizeof(Any), user_id);
-    return list;
-}
-
-static inline Any *vector_get(Arena *arena, Vector *vector, usize index)
-{
-    if (index >= vector->length)
-        return NULL;
-
-    HandleDefer(arena, vector->data);
-    Any *ptr = (Any *)HandleBorrow(arena, vector->data, vector->user_id);
-    return ptr ? &ptr[index] : NULL;
-}
-
-static inline Any vector_get_copy(Arena *arena, Vector *vector, usize index)
-{
-    if (index >= vector->length)
-        return AnyNone();
-    Any result = AnyNone();
-    WITH_ARENA (arena) {
-        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
-        if (data_ptr)
-            result = data_ptr[index];
-    }
-    return result;
-}
-
-static inline void vector_push(Arena *arena, Vector *vector, Any value)
-{
-    vector_ensure_capacity(arena, vector, vector->length + 1);
-
-    WITH_ARENA (arena) {
-        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
-
-        /*
-         * TODO(waks-work): implement proper panic or after failure case handling to
-         * ensure is is more secure
-         * */
-        if (!data_ptr)
-            return; // PANIC_MSG("Vector Push Failed: Handle Corruption or
-                    // mismatch.");
-        data_ptr[vector->length] = value;
-        vector->length += 1;
-    }
-}
-
-static inline Any vector_pop(Arena *arena, Vector *vector)
-{
-    if (vector->length == 0)
-        return AnyNone();
-
-    Any result = AnyNone();
-
-    WITH_ARENA (arena) {
-        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr)
-            PANIC_MSG("Vector pop failed: Borrow denied");
-        if (data_ptr) {
-            vector->length -= 1;
-            result = data_ptr[vector->length];
-            // data_ptr[vector->length] = AnyNone();
-        }
-    }
-    return result;
-}
-
-static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value)
-{
-    if (index > vector->length)
-        index = vector->length;
-
-    vector_ensure_capacity(arena, vector, vector->length + 1);
-
-    WITH_ARENA (arena) {
-        /*
-         * TODO(waks-work): implement proper panic or after failure case handling to
-         * ensure is is more secure
-         * */
-        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr)
-            return; /// PANIC_MSG("Couldn't Insert: Failed to Borrow");
-
-        for (usize i = vector->length; i > index; i--)
-            data_ptr[i] = data_ptr[i - 1];
-
-        data_ptr[index] = value;
-        vector->length += 1;
-    }
-}
-
-static inline void vector_remove(Arena *arena, Vector *vector, usize index)
-{
-    if (index >= vector->length)
-        return;
-
-    WITH_ARENA (arena) {
-        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr)
-            PANIC_MSG("Couldn't Insert: Failed to Borrow");
-
-        for (usize i = index; i < vector->length - 1; i++)
-            data_ptr[i] = data_ptr[i + 1];
-        vector->length -= 1;
-    }
-}
-
-static inline void vector_clear(Vector *vector)
-{
-    vector->length = 0;
-}
-
-static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap)
-{
-    if (vector->capacity >= min_cap)
-        return;
-
-    usize new_capacity = min_cap == 0 ? 8 : vector->capacity * 2;
-    if (min_cap >= new_capacity)
-        new_capacity = min_cap;
-
-    Handle new_handle = BoxAlloc(arena, new_capacity * sizeof(Any), vector->user_id);
-
-    if (vector->length > 0) {
-        WITH_ARENA (arena) {
-            ScopedBorrow(Any, old_data, vector->data, vector->user_id);
-            /*
-             * We don't use ScopeBorrow instead we use the raw HandleBorrowMut to
-             * prevent new_data from being cleared automatically at the end of the
-             * scope so we can clean it manually when we need to clean it up as
-             * expected.
-             * */
-            Any *new_data = HandleBorrowMut(arena, new_handle, vector->user_id);
-
-            if (old_data && new_data) {
-                for (usize i = 0; i < vector->length; i++) {
-                    new_data[i] = old_data[i];
-                }
-            }
-
-            HandleReleaseMut(arena, vector->data);
-        }
-    }
-
-    vector->capacity = new_capacity;
-    vector->data = new_handle;
-}
+/// ARENA IMPLEMENTATION
 
 Arena *ArenaAlloc(u64 capacity)
 {
@@ -992,6 +608,16 @@ static inline void ArenaReset(Arena *arena)
     arena->position = start_position;
 }
 
+/// HANDLE ALLOCATORS
+
+Handle BoxAlloc(Arena *arena, u32 size, u32 owner);
+static inline void *HandleBorrow(Arena *arena, Handle handle, u64 caller);
+static inline void *HandleBorrowMut(Arena *arena, Handle handle, u32 caller);
+Handle HandleMove(Arena *arena, Handle handle, u32 old_owner, u32 new_owner);
+static inline void HandleRelease(Arena *arena, Handle handle);
+static inline void HandleReleaseMut(Arena *arena, Handle handle);
+static inline void HandleDefer(Arena *arena, Handle handle);
+
 Handle BoxAlloc(Arena *arena, u32 size, u32 owner)
 {
     u32 total_size = ALIGN_16(sizeof(BoxHeader) + size);
@@ -1137,6 +763,478 @@ static inline void HandleDefer(Arena *arena, Handle handle)
 
     Handle *defer_ptr = (Handle *)(arena->memory + defer_offset);
     *defer_ptr = handle;
+}
+
+/// AUTO RELEASE FEATURES
+
+static inline void _auto_release_handle(Handle *handle);
+static inline void _raii_release_now(void *pointer);
+static inline void _raii_release_deferred(void *pointer);
+
+/// AUTO RELEASE IMPLEMENTATION
+
+/* Context Management */
+extern Arena *current_arena;
+
+/* allows for automatic release of handle i.e ScopedHandle (RAII like) */
+static inline void _auto_release_handle(Handle *handle)
+{
+    if (!current_arena) {
+        dbg_print("KERNEL PANIC: ScopeHandle used without active Arena!\n");
+        return;
+    }
+    if (handle && handle->version > 0)
+        HandleRelease(current_arena, *handle);
+}
+
+/* allows for automatic release of borrow i.e ScopedBorrow */
+static inline void _raii_release_now(void *pointer)
+{
+    void **pointer_to_ptr = (void **)pointer;
+    if (*pointer_to_ptr && current_arena) {
+        BoxHeader *header = ((BoxHeader *)*pointer_to_ptr) - 1;
+        Handle handle = {.offset = (u8 *)header - current_arena->memory,
+                         .version = header->version};
+        HandleRelease(current_arena, handle);
+    }
+}
+
+static inline void _raii_release_deferred(void *pointer)
+{
+    void **pointer_to_ptr = (void **)pointer;
+    if (*pointer_to_ptr && current_arena) {
+        BoxHeader *header = ((BoxHeader *)*pointer_to_ptr) - 1;
+        Handle handle = {.offset = (u8 *)header - current_arena->memory,
+                         .version = header->version};
+        HandleDefer(current_arena, handle);
+    }
+}
+
+/// ERROR HANDLING
+
+WaksResult waks_pcall(Arena *arena, void (*fn)(void *), void *arg);
+void waks_panic(WaksResult err);
+
+__attribute__((aligned(16))) WaksContext global_panic_env;
+
+Arena *current_arena = NULL;
+
+/*
+ * Arena *arena = ArenaAlloc(GB(1));
+ * WaksResult res = waks_pcall(arena, test_risky_logic, arena);
+ * if (res != WAKS_OK) { -> no manual cleanup needed as the arena is already
+ * rolled up LOG_FMT(LOG_ERROR, "CATCH", "Code failed with: %s",
+ * waks_strerror(res));
+ * }
+ *
+ * //example two
+ * WaksResult parse_config transaction(Arena *arena, const char *path) {
+ *   // On waks_panic call, arena->position is automatically restored to point
+ * before the call. return waks_pcall(arena, (void (*)(void *))run_parser, (void
+ * *)path);
+ * }
+ * void run_parser(void *arg) {
+ *   Arena *temp = (Arena *)arg;
+ *   Config *cfg = ArenaPush(temp, sizeof(Config));
+ *   if (!load_file(temp, cfg)) waks_panic(WAKS_ERR_IO) // jumps out and cleans
+ * the arena instantly
+ * }
+ *
+ * */
+
+WaksResult waks_pcall(Arena *arena, void (*unsafe_func)(void *), void *arg)
+{
+    u64 checkpoint = ArenaGetPos(arena);
+    global_panic_env.arena_checkpoint = checkpoint;
+
+    int status = waks_save_state();
+    if (status == 0) {
+        /// SUCCESS PATH:
+        unsafe_func(arg);
+        return WAKS_OK;
+    } else {
+        /// RECOVERY PATH:
+        ArenaSetPosBack(arena, global_panic_env.arena_checkpoint);
+        return (WaksResult)status;
+    }
+}
+
+/// void test_risky_logic(void *arg) {
+///    Arena *a = (Arena *)arg;
+///    u32 *data = ArenaPush(a, 1024);
+///    if (some_error_condition) waks_panic(WAKS_ERR_NOMEM);
+/// }
+void waks_panic(WaksResult error)
+{
+    *((volatile int *)&global_panic_env.error_code) = (int)error;
+    waks_load_state();
+}
+
+/// OPTION API
+typedef struct Option Option;
+struct Option
+{
+    Handle value;
+    b8 has_value;
+};
+
+static inline Option option_none(void);
+static inline Option option_some(Handle handle);
+static inline Handle option_unwrap(Option *opt);
+static inline Handle option_unwrap_or(Option *opt, Handle fallback);
+
+/// OPTION API IMPLEMENTATION
+
+static inline Option option_none(void)
+{
+    return (Option){.value = {0, 0}, .has_value = false};
+}
+
+static inline Option option_some(Handle handle)
+{
+    return (Option){.value = handle, .has_value = true};
+}
+
+/*
+ * Think about passing by reference so that we know we are passing
+ * by reference and not by value */
+static inline Handle option_unwrap(Option *opt)
+{
+    if (!opt)
+        return (Handle){0};
+
+    if (!opt->has_value)
+        /*
+         * TODO(waks-work):implement the panic issue and check the logic as it is
+         * needed and used in alot of places not just here and it may lead to issue
+         * it is the part returning segmentation fault
+         * */
+        PANIC_MSG("Attempted to unwrap an Option(None)");
+
+    return opt->value;
+}
+
+/*
+ * Think about passing by reference so that we know we are passing
+ * by reference and not by value */
+static inline Handle option_unwrap_or(Option *opt, Handle fallback)
+{
+    return opt->has_value ? opt->value : fallback;
+}
+
+/// Metadata stays inside the struct you want to link: no need for extra
+/// boxalloc
+typedef struct ListNode ListNode;
+struct ListNode
+{
+    ListNode *next;
+    ListNode *prev;
+};
+
+/// Linked list API
+static inline void list_init(ListNode *node);
+static inline void list_push_back(ListNode **head, ListNode *new_node);
+static inline void list_remove(ListNode **head, ListNode *node);
+static inline b8 list_is_empty(ListNode *head);
+
+/// LINKED LIST IMPLEMENTATION
+
+/* EXAMPLES:
+ * typedef struct { u32 id; char *content; ListNode node; } EditorLine;
+ *
+ * ListNode *line_list = NULL;
+ * EditorLine *line = ArenaPush(arena, sizeof(EditorLine));
+ * line->id = 1;
+ */
+
+/*
+* typedef struct {
+    char *name;
+    ListNode active_node;  // For the list of open files
+    ListNode history_node; // For the "recently closed" list
+    *
+ } File;
+ list_push_back(&active_files, &file->active_node);
+ list_push_back(&recent_history, &file->history_node);
+*/
+
+/* * list_init(&line->node); */
+static inline void list_init(ListNode *node)
+{
+    node->next = NULL;
+    node->prev = NULL;
+}
+
+/* list_push_back(&line_list, &line->node); */
+static inline void list_push_back(ListNode **head, ListNode *new_node)
+{
+    if (!new_node)
+        return;
+
+    if (*head == NULL) {
+        *head = new_node;
+        new_node->next = NULL;
+        new_node->prev = NULL;
+        return;
+    }
+
+    ListNode *curr = *head;
+    while (curr->next)
+        curr = curr->next;
+
+    curr->next = new_node;
+    new_node->prev = curr;
+    new_node->next = NULL;
+}
+/* list_remove(&line_list, &line->node); */
+static inline void list_remove(ListNode **head, ListNode *node)
+{
+    if (!head || !*head || !node)
+        return;
+
+    if (node->prev)
+        node->prev->next = node->next;
+    if (node->next)
+        node->next->prev = node->prev;
+
+    if (*head == node)
+        *head = node->next;
+
+    node->prev = NULL;
+    node->next = NULL;
+}
+
+static inline b8 list_is_empty(ListNode *head)
+{
+    return head == NULL;
+}
+
+/// VECTORS API
+
+typedef struct Vector Vector;
+struct Vector
+{
+    Handle data;    // Handle to the underlying array
+    usize capacity; // Total slots
+    usize length;   // Used slots
+    usize item_size;
+    u32 user_id; // Owner of the data
+};
+
+#define SLICE_CAST(type, string) ((type *)(string).ptr)
+
+static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id);
+static inline Any *vector_get(Arena *arena, Vector *vector, usize index);
+static inline Any vector_get_copy(Arena *arena, Vector *vector, usize index);
+static inline Any vector_pop(Arena *arena, Vector *vector);
+static inline void vector_push(Arena *arena, Vector *vector, Any value);
+static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value);
+static inline void vector_remove(Arena *arena, Vector *vector, usize index);
+static inline void vector_clear(Vector *vector);
+static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap);
+
+static inline void vector_push_raw(Arena *arena, Vector *vector, void *item);
+static inline void *vector_get_raw(Arena *arena, Vector *vector, usize index);
+static inline void vector_pop_raw(Arena *arena, Vector *vector);
+
+/// VECTORS IMPLEMENTATION
+
+/* EXAMPLE: VECTOR<Any>
+ * Vector vals = vector_init(arena, 8, sizeof(Any), uid);
+ * vector_push(arena, &vals, AnyInt(99));
+ * Any a = vector_get_copy(arena, &vals, 0);
+ * */
+
+static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id)
+{
+    Vector list = {0};
+    list.user_id = user_id;
+    list.capacity = initial_cap;
+    list.length = 0;
+    list.item_size = (usize)item_size;
+    list.data = BoxAlloc(arena, initial_cap * sizeof(u8), user_id);
+    return list;
+}
+
+static inline Any *vector_get(Arena *arena, Vector *vector, usize index)
+{
+    if (index >= vector->length)
+        return NULL;
+
+    HandleDefer(arena, vector->data);
+    Any *ptr = (Any *)HandleBorrow(arena, vector->data, vector->user_id);
+    return ptr ? &ptr[index] : NULL;
+}
+
+static inline void *vector_get_raw(Arena *arena, Vector *vector, usize index)
+{
+
+    if (index >= vector->length)
+        return NULL;
+
+    HandleDefer(arena, vector->data);
+    u8 *ptr = (u8 *)HandleBorrow(arena, vector->data, vector->user_id);
+    return ptr ? &ptr[index] : NULL;
+}
+
+static inline Any vector_get_copy(Arena *arena, Vector *vector, usize index)
+{
+    if (index >= vector->length)
+        return AnyNone();
+    Any result = AnyNone();
+    WITH_ARENA (arena) {
+        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
+        if (data_ptr)
+            result = data_ptr[index];
+    }
+    return result;
+}
+
+static inline void vector_push(Arena *arena, Vector *vector, Any value)
+{
+    vector_ensure_capacity(arena, vector, vector->length + 1);
+
+    WITH_ARENA (arena) {
+        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
+
+        /*
+         * TODO(waks-work): implement proper panic or after failure case handling to
+         * ensure is is more secure
+         * */
+        if (!data_ptr)
+            return; // PANIC_MSG("Vector Push Failed: Handle Corruption or
+                    // mismatch.");
+        data_ptr[vector->length] = value;
+        vector->length += 1;
+    }
+}
+
+static inline void vector_push_raw(Arena *arena, Vector *vector, void *item)
+{
+    if (!item)
+        return;
+
+    vector_ensure_capacity(arena, vector, vector->length + 1);
+    WITH_ARENA (arena) {
+        ScopedBorrow(u8, data_ptr, vector->data, vector->user_id);
+        if (!data_ptr)
+            return;
+
+        u8 *dst = data_ptr + (vector->length * vector->item_size);
+        __builtin_memcpy(dst, item, vector->item_size);
+        vector->length += 1;
+    }
+}
+
+static inline Any vector_pop(Arena *arena, Vector *vector)
+{
+    if (vector->length == 0)
+        return AnyNone();
+
+    Any result = AnyNone();
+
+    WITH_ARENA (arena) {
+        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
+        if (!data_ptr)
+            PANIC_MSG("Vector pop failed: Borrow denied");
+        if (data_ptr) {
+            vector->length -= 1;
+            result = data_ptr[vector->length];
+            // data_ptr[vector->length] = AnyNone();
+        }
+    }
+    return result;
+}
+
+static inline void vector_pop_raw(Arena *arena, Vector *vector)
+{
+    (void)arena;
+
+    if (vector->length == 0)
+        return;
+
+    vector->length -= 1;
+}
+
+static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value)
+{
+    if (index > vector->length)
+        index = vector->length;
+
+    vector_ensure_capacity(arena, vector, vector->length + 1);
+
+    WITH_ARENA (arena) {
+        /*
+         * TODO(waks-work): implement proper panic or after failure case handling to
+         * ensure is is more secure
+         * */
+        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
+        if (!data_ptr)
+            return; /// PANIC_MSG("Couldn't Insert: Failed to Borrow");
+
+        for (usize i = vector->length; i > index; i--)
+            data_ptr[i] = data_ptr[i - 1];
+
+        data_ptr[index] = value;
+        vector->length += 1;
+    }
+}
+
+static inline void vector_remove(Arena *arena, Vector *vector, usize index)
+{
+    if (index >= vector->length)
+        return;
+
+    WITH_ARENA (arena) {
+        ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
+        if (!data_ptr)
+            PANIC_MSG("Couldn't Insert: Failed to Borrow");
+
+        for (usize i = index; i < vector->length - 1; i++)
+            data_ptr[i] = data_ptr[i + 1];
+        vector->length -= 1;
+    }
+}
+
+static inline void vector_clear(Vector *vector)
+{
+    vector->length = 0;
+}
+
+static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap)
+{
+    if (vector->capacity >= min_cap)
+        return;
+
+    usize new_capacity = min_cap == 0 ? 8 : vector->capacity * 2;
+    if (min_cap >= new_capacity)
+        new_capacity = min_cap;
+
+    Handle new_handle = BoxAlloc(arena, new_capacity * sizeof(Any), vector->user_id);
+
+    if (vector->length > 0) {
+        WITH_ARENA (arena) {
+            ScopedBorrow(Any, old_data, vector->data, vector->user_id);
+            /*
+             * We don't use ScopeBorrow instead we use the raw HandleBorrowMut to
+             * prevent new_data from being cleared automatically at the end of the
+             * scope so we can clean it manually when we need to clean it up as
+             * expected.
+             * */
+            Any *new_data = HandleBorrowMut(arena, new_handle, vector->user_id);
+
+            if (old_data && new_data) {
+                for (usize i = 0; i < vector->length; i++) {
+                    new_data[i] = old_data[i];
+                }
+            }
+
+            HandleReleaseMut(arena, vector->data);
+        }
+    }
+
+    vector->capacity = new_capacity;
+    vector->data = new_handle;
 }
 
 static inline void dbg_print(const char *str)
