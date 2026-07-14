@@ -78,13 +78,12 @@ COMPILER_PRAGMA(GCC diagnostic error "-Wimplicit-fallthrough")
 #define match(x) switch (__builtin_expect((x)._slot0 >> _TAG_SHIFT, _tag_i64))
 #define with break;
 
-typedef enum WaksResult WaksResult;
-enum WaksResult {
+typedef enum WaksResult {
 #define X(code, string) code,
 #include "waks_error.inc"
 #undef X
   WAKS_ERR_COUNT
-};
+} WaksResult;
 
 typedef struct WaksContext WaksContext;
 struct WaksContext {
@@ -190,7 +189,7 @@ static inline Any AnyUint(u64 value);
 static inline Any AnyChar(u8 value);
 static inline Any AnyBool(b8 strict);
 static inline Any AnyWaks(WaksResult result);
-static inline Any AnyNone();
+static inline Any AnyNone(void);
 static inline Any AnyPtr(void *ptr);
 
 /// Vector v = vector_init(arena, 10, sizeof(Any), user_id);

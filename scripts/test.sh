@@ -1,8 +1,14 @@
-#!/bin/bash
-echo "🧪 Running tests for waks_cstd..."
+#!/usr/bin/env bash
+set -e
 
-# C waks_cstd project.
-[ -f "Makefile" ] && make test
-[ -f "CMakeLists.txt" ] && cd build && ctest .. && cd ..
+./scripts/build.sh
 
-echo "✅ Tests completed for waks_cstd!"
+mkdir -p build
+
+clang \
+    tests/arena_test.c \
+    build/libwaks_cstd.a \
+    -Iinclude \
+    -o build/arena_test
+
+./build/arena_test

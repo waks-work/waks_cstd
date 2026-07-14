@@ -117,7 +117,7 @@ void __stdcall ExitProcess(u32 ExitCode);
 #    define OS_DECOMMIT(ptr, size)
 #endif
 
-static void os_panic()
+static void os_panic(void)
 {
 #if defined(__linux)
     syscall6(SYS_exit, 1, 0, 0, 0, 0, 0);
