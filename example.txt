@@ -245,3 +245,16 @@ void example(void)
     int_vector_push(&vec, 42);
     int_vector_push(&vec, 1337);
 }
+
+// WE CAN "typedef" this: 
+extern void (*(revealer(void)))(int);
+
+/// As to make it easier to use
+typedef void (*HiddenFunctionType)(int);
+extern HiddenFunctionType revealer(void);
+
+// reveal.c
+static void hidden_function(int x)   { printf("%s:%s(): %d\n", __FILE__, __func__, x);}
+extern void (*(revealer(void)))(int) { return hidden_function; } 
+
+// openness.c

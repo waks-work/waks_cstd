@@ -1,12 +1,303 @@
+
+/*
+*  waks_type name to the types 
+*    - each file must be able to survive with itself without any dependency to any 
+*      other external file ie containers.h, allocators.h, 
+*    - have a malloc implementation also so it can survive without the need of arenas 
+*    - make sure it works, easy to use and works as expected.
+*    - ensure it doesn't conflict with the stdlib in cases where stblib may be used.
+*  */
+
 #ifndef ARENA_H
 #define ARENA_H
 
-#include "types.h"
+#ifndef WAKS_TYPES_H
+#define WAKS_TYPES_H
 
-typedef __INT64_TYPE__ uintptr_t;
+// basic unsigned types
+typedef __UINT8_TYPE__  u8;  // waks_uchar
+typedef __UINT16_TYPE__ u16; // waks_u16
+typedef __UINT32_TYPE__ u32; // waks_u32
+typedef __UINT64_TYPE__ u64; // waks_u64
+
+// basic signed types
+typedef __INT8_TYPE__  i8;   // waks_char
+typedef __INT16_TYPE__ i16;  // waks_i16
+typedef __INT32_TYPE__ i32;  // waks_i32
+typedef __INT64_TYPE__ i64;  // waks_i64
+
+// float types
+typedef float  f32;          // waks_float
+typedef double f64;          // waks_double
+
+// size types
+typedef __SIZE_TYPE__    usize; // waks_usize
+typedef __PTRDIFF_TYPE__ ssize; // waks_ssize
+typedef __INT64_TYPE__ uintptr_t; // waks_uintptr
+
+// basic size types
+typedef _Bool            b8;    // waks_bool
+#ifndef __cplusplus
+#	define true  1     // waks_true
+#	define false 0     // waks_false
+#endif
+
+// basic string type and its implementation should follow
+typedef struct String String; // waks_string
+struct String {
+    u8    *data;
+    usize length;
+};
+
+// compiler builtins (??? explain deeply) &&& waks_auto implementation
+#if defined(__clang__)
+#	define COMPILER_PRAGMA(x) _Pragma(#x)
+#	define AUTO               __auto_type
+#elif defined(__GNUC__)
+#	define COMPILER_PRAGMA(x) _Pragma(#x)
+#	define AUTO auto                        // waks_auto
+#else
+#	define COMPILER_PRAGMA(x) _Pragma(#x)
+#	define AUTO               ____auto_type  // waks_auto
+#endif
+
+COMPILER_PRAGMA(GCC diagnostic error "-Wswitch")
+COMPILER_PRAGMA(GCC diagnostic error "-Wimplicit-fallthrough")
+
+// Detect architecture
+#if defined(__x86_64__) || defined(_M_X64)
+// x86-64: Use top 16 bits (48–63) for tagging
+#	define _PTR_MASK 0x0000FFFFFFFFFFFFULL
+#	define _EXTRACT_PTR(slot) (u8 *)(((i64)((slot) & _PTR_MASK) << 16) >> 16)
+#	define _TAG_SHIFT 48
+#elif defined(__aarch64__) && defined(__ARM_64BIT_STATE)
+// ARM64: Use Top Byte Ignore (TBI), bits 56–63
+#	define _PTR_MASK 0x00FFFFFFFFFFFFFFULL  		     // Mask bits 56–63
+#	define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK) // TBI: bits ignored on deref
+#	define _TAG_SHIFT 56
+#elif defined(__riscv) && (__riscv_xlen == 64)
+// RISC-V 64: Assume 48-bit addressing (SV48) if no pointer masking
+#	if defined(__riscv_zicbom) || defined(__riscv_zicboz)
+ 		// Use compressed instructions or cache hints (optional)
+#	endif
+
+#	define _PTR_MASK 0x0000FFFFFFFFFFFFULL
+#	define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK) // No sign-extension needed
+#	define _TAG_SHIFT 48
+#else
+// Fallback: Use lower bits (if aligned)
+#warning "Using lower-bit tagging for portability"
+#define _PTR_MASK 0xFFFFFFFFFFFFFFF0ULL // Mask low 4 bits
+#define _EXTRACT_PTR(slot) (u8 *)((slot) & _PTR_MASK)
+#define _TAG_SHIFT 0 // Tags in bits 0–3
+#endif
+
+#define match(x) switch (__builtin_expect((x)._slot0 >> _TAG_SHIFT, _tag_i64))
+#define with break; 	// break
+
+typedef enum WaksResult {
+#define X(code, string) code,
+#include "waks_error.inc"
+#undef X
+	WAKS_ERR_COUNT
+} WaksResult;
+
+typedef struct WaksContext WaksContext;
+struct WaksContext {
+	u64 sp;               // Offset 0
+	u64 pc;               // Offset 8
+	u64 rbx;              // Offset 16
+	u64 rbp;              // Offset 24
+	u64 r12;              // Offset 32
+	u64 r13;              // Offset 40
+	u64 r14;              // Offset 48
+	u64 r15;              // Offset 56
+	u64 arena_checkpoint; // Offset 64
+	i32 error_code;       // Offset 72
+};
+
+// we it is implemented in the assembly fie
+extern WaksContext global_panic_env;
+
+__attribute__((returns_twice)) extern int waks_save_state(void);
+extern void waks_load_state(void);
+
+// AnyType: Boxes a Type  into an Any type to be used.
+// Bottom 48 bits: Pointer address
+// Top 16 bits: _tag_ptr
+
+enum any_tag {
+	_tag_none,
+	_tag_str,
+	_tag_i64,
+	_tag_u64,
+	_tag_char,
+	_tag_bool,
+	_tag_waks_err,
+	_tag_ptr = 0x7
+};
+
+union any_union {
+	String 	_str;
+	i64 _i64;
+	u64 _u64;
+	u8 _char;
+	b8 _bool;
+	b8 _none;
+	void *_ptr;
+	WaksResult _waks_err;
+};
+
+typedef struct {
+  u64 _slot0; // Tag (Top 16) + Pointer/Value (Bottom 48)
+  u64 _slot1; // String.length && secondary data
+} Any;
+
+/// for (usize i = 0; i < v.length; i++) {
+///     Any item = *vector_get(arena, &v, i);
+///     match(item) {
+///         MatchStr(item, s) { io_print(s); io_print(STR("\n")); } with / break;
+///         default: break;
+///     }
+/// }
+#define MatchStr(v, name)                                                      \
+  case _tag_str:;                                                              \
+    String name = {.data = _EXTRACT_PTR((v)._slot0),.length = (usize)(v)._slot1};
+
+/// Any item = vector_get(arena, &v, i);
+/// match(item) { MatchInt(item, val) { dbg_print_int((i16)val); } with;
+/// default: break; }
+#define MatchInt(v, name)                                                      \
+  case _tag_i64:;                                                              \
+    i64 name = (i64)(((i64)((v)._slot0 & _PTR_MASK) << 16) >> 16);
+
+#define MatchUint(v, name)                                                     \
+  case _tag_u64:;                                                              \
+    u64 name = (u64)((v)._slot0 & _PTR_MASK) | ((u64)(v)._slot1 << 48);
+
+#define MatchChar(v, name)                                                     \
+  case _tag_char:;                                                             \
+    u8 name = (u8)(((v)._slot0 & 0xFF));
+
+#define MatchBool(v, name)                                                     \
+  case _tag_bool:;                                                             \
+    b8 name = (b8)((v)._slot0 & 0x1);
+
+#define MatchNone(v) case _tag_none:;
+
+/// Any result = some_logic();
+/// match(result) { MatchWaks(result, err) { return err; } with; }
+#define MatchWaks(v, name)                                                     \
+  case _tag_waks_err:;                                                         \
+    WaksResult name = (WaksResult)((v)._slot0 & _PTR_MASK);
+
+// Extract pointer back to the match statement
+#define MatchPtr(v, name)                                                      \
+  case _tag_ptr:;                                                              \
+    void *name = (void *)((v)._slot0 & _PTR_MASK);
+
+static inline Any AnyStr(String str);
+static inline Any AnyInt(i64 value);
+static inline Any AnyUint(u64 value);
+static inline Any AnyChar(u8 value);
+static inline Any AnyBool(b8 strict);
+static inline Any AnyWaks(WaksResult result);
+static inline Any AnyNone(void);
+static inline Any AnyPtr(void *ptr);
+
+/// Vector v = vector_init(arena, 10, sizeof(Any), user_id);
+/// vector_push(&v, AnyInt(42));
+/// vector_push(&v, AnyStr(from_cstr("Hello Waks")));
+/// vector_push(&v, AnyBool(true));
+static inline Any AnyStr(String str) {
+  return (Any){
+      // Mask the pointer and OR the tag into the top 16 bits
+      ._slot0 = ((u64)str.data & _PTR_MASK) | ((u64)_tag_str << _TAG_SHIFT),
+      ._slot1 = (u64)str.length,
+  };
+}
+
+static inline Any AnyUint(u64 value) {
+  return (Any){
+      ._slot0 = (value & _PTR_MASK) | ((u64)_tag_u64 << _TAG_SHIFT),
+      ._slot1 = (value >> 48),
+  };
+}
+
+static inline Any AnyInt(i64 value) {
+  return (Any){
+      ._slot0 = ((u64)value & _PTR_MASK) | ((u64)_tag_i64 << _TAG_SHIFT),
+      ._slot1 = 0,
+  };
+}
+
+static inline Any AnyChar(u8 value) {
+  return (Any){
+      ._slot0 = ((u64)value & _PTR_MASK) | ((u64)_tag_char << _TAG_SHIFT),
+      ._slot1 = 0,
+  };
+}
+
+static inline Any AnyBool(b8 value) {
+  return (Any){
+      ._slot0 = ((u64)value & _PTR_MASK) | ((u64)_tag_bool << _TAG_SHIFT),
+      ._slot1 = 0,
+  };
+}
+
+/** AnyNone: Boxes a none type that returns nothing **/
+static inline Any AnyNone(void) {
+  return (Any){._slot0 = (u64)_tag_none << _TAG_SHIFT, ._slot1 = 0};
+}
+
+/**  AnyWaks: Boxes an error type into an Any type. */
+static inline Any AnyWaks(WaksResult result) {
+  return (Any){
+      ._slot0 = ((u64)result & _PTR_MASK) | ((u64)_tag_waks_err << _TAG_SHIFT),
+      ._slot1 = 0,
+  };
+}
+
+/** AnyPtr: Boxes a raw pointer into an Any type. */
+static inline Any AnyPtr(void *ptr) {
+  return (Any){
+      ._slot0 = ((u64)ptr & _PTR_MASK) | ((u64)_tag_ptr << _TAG_SHIFT),
+      ._slot1 = 0,
+  };
+}
+#pragma GCC poison _internal_tag _internal_field _str _i64 _u64 _char _bool
+
+static inline String from_cstr(char *str);
+/// Error Logic
+static inline const char *waks_strerror(WaksResult error);
+
+static inline String from_cstr(char *str) {
+  usize len = 0;
+  while (str[len]) len++;
+  return (String){(u8 *)str, len};
+}
+
+static inline const char *waks_strerror(WaksResult error) {
+	switch (error) {
+#define X(code, string)                                                        \
+	case code:                                                                   \
+	return string;
+    #include "waks_error.inc"
+#undef X
+	default:
+		return "UNKNOWN STRING";
+	}
+}
+
+#endif // !WAKS_TYPES_H
+
+#define internal     static
+#define local_scope  static
+#define global_scope static
+
 /// IN ARENA
-#define NULL ((void *)0)
-#define ALIGN_16(n) (((n) + 15) & ~15)
+#define NULL ((void *)0)               // waks_null
+#define ALIGN_16(n) (((n) + 15) & ~15) // waks_align16
 #define ALIGN_UP(n, align) (((n) + (align - 1)) & ~((align) - 1))
 #define ALIGN_DOWN(n, align) ((n) & ~((align) - 1))
 #define BOX_MAGIC 0xBAAD
@@ -44,6 +335,7 @@ typedef __INT64_TYPE__ uintptr_t;
 #    define MAP_FAILED ((void *)-1)
 #    define _SC_PAGESIZE 30
 
+// @TODO(waks-work): this needs to be changed  to waks_syscall6
 static inline long syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 {
 #    if defined(__x86_64)
@@ -93,12 +385,12 @@ static inline long syscall6(long n, long a1, long a2, long a3, long a4, long a5,
 
 #elif defined(_WIN32) || defined(_WIN64)
 
-#    define MEM_COMMIT 0x00001000
+#    define MEM_COMMIT 0x00001000   // waks_mem_commit
 #    define MEM_RESERVE 0x00002000
 #    define MEM_DECOMMIT 0x00004000
 #    define MEM_RELEASE 0x00008000
 #    define PAGE_NOACCESS 0x01
-#    define PAGE_READWRITE 0x04
+#    define PAGE_READWRITE 0x04     // waks_page_readwrite
 
 // Manually declare Kernel functions to avoid windows.h
 #    ifdef __cpluscplus
@@ -159,7 +451,7 @@ static inline void dbg_print_int(i16 n);
 /// })
 
 /// BIT MANIPULATION
-#define BIT(n) (1ULL << (n))
+#define BIT(n) (1ULL << (n))   // waks_bit
 #define SET_BIT(reg, n) ((reg) |= BIT(n))
 #define CLR_BIT(reg, n) ((reg) &= ~BIT(n))
 #define GET_BIT(reg, n) ((reg) & BIT(n))
@@ -350,17 +642,14 @@ static inline void dbg_print_int(i16 n);
 /* u32 x = vector_get_t(arena, &nums, u32, 1); */
 #define vector_get_t(arena, vec, T, index) (*(T *)vector_get_raw(arena, vec, index))
 
-/*
- * for (ListNode *curr = line_list; curr != NULL; curr = curr->next) {
- *     EditorLine *line_data = container_of(curr, EditorLine, node);
- *     (Do something with line_data->content...)
- * }
- */
+//  for (ListNode *curr = line_list; curr != NULL; curr = curr->next) {
+//      EditorLine *line_data = container_of(curr, EditorLine, node);
+//      (Do something with line_data->content...)
+//  }
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - (uintptr_t)&((type *)0)->member))
 
 // void* ptr = ArenaPush(arena, 100);
 // defer(ArenaReset(arena)); // This runs automatically when the function ends
-// include/waks/core/defer.h
 // static inline void _waks_defer_cleanup(void (**)()) {
 //    (*ptr)();
 // }
@@ -371,16 +660,6 @@ static inline void dbg_print_int(i16 n);
     }                                                                                              \
     void (*_waks_internal_ptr_##__LINE__)(void) __attribute__((cleanup(_waks_defer_cleanup))) =    \
         _waks_internal_defer_##__LINE__;
-
-
-/// ALLOCATOR STRUCTS 
-
-typedef struct WaksAllocator WaksAllocator;
-struct WaksAllocator {
-    void *(*alloc)(void *context, ssize size, ssize alignment);
-    void (*free)(void *context, void *ptr);
-    void *context;
-};
 
 /// ARENA STRUCTS
 
@@ -429,13 +708,10 @@ Arena *ArenaAlloc(u64 capacity)
 {
     void *base = NULL;
 #if defined(__linux)
-    /*
-     * Ask the OS for a large chunk of the of the virtual memory but tells
-     * the hardware not to allocate physical RAM yet
-     * */
+    // Ask the OS for a large chunk of the of the virtual memory but tells
+    // the hardware not to allocate physical RAM yet
     base = (void *)syscall6(SYS_mmap, 0, capacity, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    if (base == MAP_FAILED || base == NULL)
-        return NULL;
+    if (base == MAP_FAILED || base == NULL) return NULL;
 
     Arena *arena = (Arena *)base;
     /* Changes access from NOACCESS to READ && WRITE */
@@ -443,8 +719,7 @@ Arena *ArenaAlloc(u64 capacity)
 
 #elif defined(_WIN32) || defined(_WIN64)
     base = VirtualAlloc(NULL, (size_t)capacity, MEM_RESERVE, PAGE_NOACCESS);
-    if (!base)
-        return NULL;
+    if (!base) return NULL;
 
     if (!VirtualAlloc(base, PAGESIZE, MEM_COMMIT, PAGE_READWRITE))
         return NULL;
@@ -453,8 +728,7 @@ Arena *ArenaAlloc(u64 capacity)
 #elif defined(USE_STD_LIB)
     u64 total_size = capacity + sizeof(Arena);
     base = malloc(total_size);
-    if (!base)
-        return NULL;
+    if (!base) return NULL;
     if (!OS_COMMIT(base, PAGESIZE)) {
         free(base);
         return NULL;
@@ -479,10 +753,8 @@ static inline void *ArenaPush(Arena *arena, u64 size)
     u64 needed_space = next_pos + (arena->defer_count * sizeof(Handle)) + 256;
     ASSERT(needed_space <= arena->capacity);
 
-    /*
-     * We will allocate an extra memory page if the (needed_space + defer_count)
-     * is greater than a single pagesize(4KB)
-     * */
+    // We will allocate an extra memory page if the (needed_space + defer_count)
+    // is greater than a single pagesize(4KB)
     if (needed_space > arena->commited) {
         u64 commit_needed = needed_space - arena->commited;
         u64 commit_aligned = ALIGN_16(commit_needed + arena->pagesize - 1) & ~(arena->pagesize - 1);
@@ -558,10 +830,9 @@ static inline void ArenaRelease(Arena *arena)
     }
 }
 
-/*
- * Used to reset all the borrow count together for all the borrow
- * we called HandleDefer on for a specific scope.
- * */
+
+// Used to reset all the borrow count together for all the borrow
+// we called HandleDefer on for a specific scope.
 static inline void ArenaReset(Arena *arena)
 {
     // process based on pagewide boundary
@@ -608,6 +879,39 @@ static inline void ArenaReset(Arena *arena)
     arena->position = start_position;
 }
 
+/// ALLOCATOR STRUCTS 
+
+typedef struct WaksAllocator WaksAllocator;
+struct WaksAllocator {
+    void *(*alloc)(void *context, ssize size, ssize alignment);
+    void (*free)(void *context, void *ptr);
+    void *context;
+};
+
+static void *arena_alloc_w(void *context, ssize size, ssize alignment);
+static void arena_free_w(void *context, void *ptr);
+WaksAllocator waks_arena_as_allocator(Arena *arena);
+
+static void *arena_alloc_w(void *context, ssize size, ssize alignment)
+{
+	Arena *arena = (Arena*)context;
+    (void)alignment;
+    return ArenaPush(arena,(u64)size);
+}
+
+static void arena_free_w(void *context, void *ptr) 
+{
+    (void)context;
+    (void)ptr;
+}
+
+WaksAllocator waks_arena_as_allocator(Arena *arena){
+    return (WaksAllocator){
+ 	  .alloc = arena_alloc_w, 
+ 	  .free = arena_free_w, 
+      .context =arena};
+}
+
 /// HANDLE ALLOCATORS
 
 Handle BoxAlloc(Arena *arena, u32 size, u32 owner);
@@ -622,8 +926,7 @@ Handle BoxAlloc(Arena *arena, u32 size, u32 owner)
 {
     u32 total_size = ALIGN_16(sizeof(BoxHeader) + size);
     u8 *raw_ptr = (u8 *)ArenaPush(arena, total_size);
-    if (!raw_ptr)
-        return (Handle){0, 0};
+    if (!raw_ptr) return (Handle){0, 0};
 
     BoxHeader *handle = (BoxHeader *)raw_ptr;
     handle->size = size;
@@ -644,8 +947,7 @@ Handle BoxAlloc(Arena *arena, u32 size, u32 owner)
 
 static inline void *HandleBorrow(Arena *arena, Handle handle, u64 caller)
 {
-    if (handle.version == 0)
-        return NULL;
+    if (handle.version == 0) return NULL;
 
     BoxHeader *header = (BoxHeader *)(arena->memory + handle.offset);
 
@@ -655,8 +957,8 @@ static inline void *HandleBorrow(Arena *arena, Handle handle, u64 caller)
         return NULL;
 
     i16 borrow = __atomic_load_n(&header->borrows, ATOMIC_SEQ_CST);
-    if (borrow < 0)
-        return NULL;
+    if (borrow < 0) return NULL;
+
     __atomic_fetch_add(&header->borrows, 1, ATOMIC_SEQ_CST);
 #else
     if (header->version != handle.version || header->owner_id != caller ||
@@ -670,11 +972,10 @@ static inline void *HandleBorrow(Arena *arena, Handle handle, u64 caller)
 
 static inline void *HandleBorrowMut(Arena *arena, Handle handle, u32 caller)
 {
-    if (handle.version == 0)
-        return NULL;
+    if (handle.version == 0) return NULL;
+
     BoxHeader *header = (BoxHeader *)(arena->memory + handle.offset);
-    if (header->borrows != 0)
-        return NULL;
+    if (header->borrows != 0) return NULL;
 
 #ifdef CONCURRENT_MODE
     // Atomic Compare and Swap (CAS) to ensure borrows is exactly 0
@@ -725,8 +1026,7 @@ Handle HandleMove(Arena *arena, Handle handle, u32 old_owner, u32 new_owner)
 static inline void HandleRelease(Arena *arena, Handle handle)
 {
     BoxHeader *header = (BoxHeader *)(arena->memory + handle.offset);
-    if (header->magic != BOX_MAGIC || header->version != handle.version)
-        return;
+    if (header->magic != BOX_MAGIC || header->version != handle.version) return;
 #ifdef CONCURRENT_MODE
     __atomic_fetch_add(&header->version, 1, ATOMIC_SEQ_CST);
     __atomic_store_n(&header->owner_id, 0, ATOMIC_SEQ_CST);
@@ -750,8 +1050,7 @@ static inline void HandleReleaseMut(Arena *arena, Handle handle)
 
 static inline void HandleDefer(Arena *arena, Handle handle)
 {
-    if (handle.version == 0)
-        return;
+    if (handle.version == 0) return;
 
     if (arena->position + (arena->defer_count + 1) * sizeof(Handle) >= arena->commited) {
         ArenaPush(arena, arena->pagesize);
@@ -819,28 +1118,24 @@ __attribute__((aligned(16))) WaksContext global_panic_env;
 
 Arena *current_arena = NULL;
 
-/*
- * Arena *arena = ArenaAlloc(GB(1));
- * WaksResult res = waks_pcall(arena, test_risky_logic, arena);
- * if (res != WAKS_OK) { -> no manual cleanup needed as the arena is already
- * rolled up LOG_FMT(LOG_ERROR, "CATCH", "Code failed with: %s",
- * waks_strerror(res));
- * }
- *
- * //example two
- * WaksResult parse_config transaction(Arena *arena, const char *path) {
- *   // On waks_panic call, arena->position is automatically restored to point
- * before the call. return waks_pcall(arena, (void (*)(void *))run_parser, (void
- * *)path);
- * }
- * void run_parser(void *arg) {
- *   Arena *temp = (Arena *)arg;
- *   Config *cfg = ArenaPush(temp, sizeof(Config));
- *   if (!load_file(temp, cfg)) waks_panic(WAKS_ERR_IO) // jumps out and cleans
- * the arena instantly
- * }
- *
- * */
+// Arena *arena = ArenaAlloc(GB(1));
+// WaksResult res = waks_pcall(arena, test_risky_logic, arena);
+// if (res != WAKS_OK){ //  -> no manual cleanup needed as the arena is already rolled up 
+//	  LOG_FMT(LOG_ERROR, "CATCH", "Code failed with: %s",
+//    waks_strerror(res));
+// }
+//
+// //example two
+// WaksResult parse_config transaction(Arena *arena, const char *path) {
+//    // On waks_panic call, arena->position is automatically restored to point before the call. 
+//    return waks_pcall(arena, (void (*)(void *))run_parser, (void*)path);
+// }
+// void run_parser(void *arg) {
+//   Arena *temp = (Arena *)arg;
+//   Config *cfg = ArenaPush(temp, sizeof(Config));
+//   if (!load_file(temp, cfg)) 
+//      waks_panic(WAKS_ERR_IO) // jumps out and cleans the arena instantly
+// }
 
 WaksResult waks_pcall(Arena *arena, void (*unsafe_func)(void *), void *arg)
 {
@@ -862,7 +1157,8 @@ WaksResult waks_pcall(Arena *arena, void (*unsafe_func)(void *), void *arg)
 /// void test_risky_logic(void *arg) {
 ///    Arena *a = (Arena *)arg;
 ///    u32 *data = ArenaPush(a, 1024);
-///    if (some_error_condition) waks_panic(WAKS_ERR_NOMEM);
+///    if (some_error_condition) 
+///     	waks_panic(WAKS_ERR_NOMEM);
 /// }
 void waks_panic(WaksResult error)
 {
@@ -895,28 +1191,21 @@ static inline Option option_some(Handle handle)
     return (Option){.value = handle, .has_value = true};
 }
 
-/*
- * Think about passing by reference so that we know we are passing
- * by reference and not by value */
+// Think about passing by reference so that we know we are passing
+// by reference and not by value 
 static inline Handle option_unwrap(Option *opt)
 {
-    if (!opt)
-        return (Handle){0};
-
-    if (!opt->has_value)
-        /*
-         * TODO(waks-work):implement the panic issue and check the logic as it is
-         * needed and used in alot of places not just here and it may lead to issue
-         * it is the part returning segmentation fault
-         * */
-        PANIC_MSG("Attempted to unwrap an Option(None)");
+    if (!opt) return (Handle){0};
+	 // TODO(waks-work):implement the panic issue and check the logic as it is
+	 // needed and used in alot of places not just here and it may lead to issue
+	 // it is the part returning segmentation fault */
+    if (!opt->has_value) PANIC_MSG("Attempted to unwrap an Option(None)");
 
     return opt->value;
 }
 
-/*
- * Think about passing by reference so that we know we are passing
- * by reference and not by value */
+// Think about passing by reference so that we know we are passing
+// by reference and not by value 
 static inline Handle option_unwrap_or(Option *opt, Handle fallback)
 {
     return opt->has_value ? opt->value : fallback;
@@ -939,66 +1228,62 @@ static inline b8 list_is_empty(ListNode *head);
 
 /// LINKED LIST IMPLEMENTATION
 
-/* EXAMPLES:
- * typedef struct { u32 id; char *content; ListNode node; } EditorLine;
- *
- * ListNode *line_list = NULL;
- * EditorLine *line = ArenaPush(arena, sizeof(EditorLine));
- * line->id = 1;
- */
+// EXAMPLES:
+// typedef struct { u32 id; char *content; ListNode node; } EditorLine;
+// 
+//	 ListNode *line_list = NULL;
+//	 EditorLine *line = ArenaPush(arena, sizeof(EditorLine));
+//	 line->id = 1;
 
-/*
-* typedef struct {
-    char *name;
-    ListNode active_node;  // For the list of open files
-    ListNode history_node; // For the "recently closed" list
-    *
- } File;
- list_push_back(&active_files, &file->active_node);
- list_push_back(&recent_history, &file->history_node);
-*/
 
-/* * list_init(&line->node); */
+// typedef struct {
+//     char *name;
+//     ListNode active_node;  // For the list of open files
+//     ListNode history_node; // For the "recently closed" list
+// } File;
+// list_push_back(&active_files, &file->active_node);
+// list_push_back(&recent_history, &file->history_node);
+//
+
+// list_init(&line->node); 
 static inline void list_init(ListNode *node)
 {
     node->next = NULL;
     node->prev = NULL;
 }
 
-/* list_push_back(&line_list, &line->node); */
+// list_push_back(&line_list, &line->node); 
 static inline void list_push_back(ListNode **head, ListNode *new_node)
 {
-    if (!new_node)
-        return;
+    if (!new_node) return;
 
     if (*head == NULL) {
-        *head = new_node;
+        *head          = new_node;
         new_node->next = NULL;
         new_node->prev = NULL;
         return;
     }
 
     ListNode *curr = *head;
-    while (curr->next)
-        curr = curr->next;
+    while (curr->next) curr = curr->next;
 
-    curr->next = new_node;
+    curr->next     = new_node;
     new_node->prev = curr;
     new_node->next = NULL;
 }
-/* list_remove(&line_list, &line->node); */
+// list_remove(&line_list, &line->node); 
 static inline void list_remove(ListNode **head, ListNode *node)
 {
-    if (!head || !*head || !node)
-        return;
+    if (!head || !*head || !node) return;
 
-    if (node->prev)
-        node->prev->next = node->next;
-    if (node->next)
-        node->next->prev = node->prev;
+    // prev-> points to -> next item
+    if (node->prev) node->prev->next = node->next;
 
-    if (*head == node)
-        *head = node->next;
+    // prev <- the prev item is pointed back by the next item <- next
+    if (node->next) node->next->prev = node->prev;
+
+    // move the head pointer to the next element
+    if (*head == node) *head = node->next;
 
     node->prev = NULL;
     node->next = NULL;
@@ -1039,11 +1324,10 @@ static inline void vector_pop_raw(Arena *arena, Vector *vector);
 
 /// VECTORS IMPLEMENTATION
 
-/* EXAMPLE: VECTOR<Any>
- * Vector vals = vector_init(arena, 8, sizeof(Any), uid);
- * vector_push(arena, &vals, AnyInt(99));
- * Any a = vector_get_copy(arena, &vals, 0);
- * */
+// EXAMPLE: VECTOR<Any>
+// Vector vals = vector_init(arena, 8, sizeof(Any), uid);
+// vector_push(arena, &vals, AnyInt(99));
+// Any a = vector_get_copy(arena, &vals, 0);
 
 static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_size, u32 user_id)
 {
@@ -1058,8 +1342,7 @@ static inline Vector vector_init(Arena *arena, usize initial_cap, usize item_siz
 
 static inline Any *vector_get(Arena *arena, Vector *vector, usize index)
 {
-    if (index >= vector->length)
-        return NULL;
+    if (index >= vector->length) return NULL;
 
     HandleDefer(arena, vector->data);
     Any *ptr = (Any *)HandleBorrow(arena, vector->data, vector->user_id);
@@ -1068,9 +1351,7 @@ static inline Any *vector_get(Arena *arena, Vector *vector, usize index)
 
 static inline void *vector_get_raw(Arena *arena, Vector *vector, usize index)
 {
-
-    if (index >= vector->length)
-        return NULL;
+    if (index >= vector->length) return NULL;
 
     HandleDefer(arena, vector->data);
     u8 *ptr = (u8 *)HandleBorrow(arena, vector->data, vector->user_id);
@@ -1079,13 +1360,11 @@ static inline void *vector_get_raw(Arena *arena, Vector *vector, usize index)
 
 static inline Any vector_get_copy(Arena *arena, Vector *vector, usize index)
 {
-    if (index >= vector->length)
-        return AnyNone();
+    if (index >= vector->length) return AnyNone();
     Any result = AnyNone();
     WITH_ARENA (arena) {
         ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
-        if (data_ptr)
-            result = data_ptr[index];
+        if (data_ptr) result = data_ptr[index];
     }
     return result;
 }
@@ -1096,14 +1375,11 @@ static inline void vector_push(Arena *arena, Vector *vector, Any value)
 
     WITH_ARENA (arena) {
         ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
-
-        /*
-         * TODO(waks-work): implement proper panic or after failure case handling to
-         * ensure is is more secure
-         * */
-        if (!data_ptr)
-            return; // PANIC_MSG("Vector Push Failed: Handle Corruption or
-                    // mismatch.");
+        
+        // TODO(waks-work): implement proper panic or after failure case handling to
+        // ensure is is more secure
+        if (!data_ptr) return;
+        // PANIC_MSG("Vector Push Failed: Handle Corruption or mismatch.");
         data_ptr[vector->length] = value;
         vector->length += 1;
     }
@@ -1111,14 +1387,12 @@ static inline void vector_push(Arena *arena, Vector *vector, Any value)
 
 static inline void vector_push_raw(Arena *arena, Vector *vector, void *item)
 {
-    if (!item)
-        return;
+    if (!item) return;
 
     vector_ensure_capacity(arena, vector, vector->length + 1);
     WITH_ARENA (arena) {
         ScopedBorrow(u8, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr)
-            return;
+        if (!data_ptr) return;
 
         u8 *dst = data_ptr + (vector->length * vector->item_size);
         __builtin_memcpy(dst, item, vector->item_size);
@@ -1128,15 +1402,12 @@ static inline void vector_push_raw(Arena *arena, Vector *vector, void *item)
 
 static inline Any vector_pop(Arena *arena, Vector *vector)
 {
-    if (vector->length == 0)
-        return AnyNone();
-
+    if (vector->length == 0) return AnyNone();
     Any result = AnyNone();
 
     WITH_ARENA (arena) {
         ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr)
-            PANIC_MSG("Vector pop failed: Borrow denied");
+        if (!data_ptr) PANIC_MSG("Vector pop failed: Borrow denied");
         if (data_ptr) {
             vector->length -= 1;
             result = data_ptr[vector->length];
@@ -1149,28 +1420,20 @@ static inline Any vector_pop(Arena *arena, Vector *vector)
 static inline void vector_pop_raw(Arena *arena, Vector *vector)
 {
     (void)arena;
-
-    if (vector->length == 0)
-        return;
-
+    if (vector->length == 0) return;
     vector->length -= 1;
 }
 
 static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any value)
 {
-    if (index > vector->length)
-        index = vector->length;
-
+    if (index > vector->length) index = vector->length;
     vector_ensure_capacity(arena, vector, vector->length + 1);
 
     WITH_ARENA (arena) {
-        /*
-         * TODO(waks-work): implement proper panic or after failure case handling to
-         * ensure is is more secure
-         * */
+         // TODO(waks-work): implement proper panic or after failure case handling to
+         // ensure is is more secure
         ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr)
-            return; /// PANIC_MSG("Couldn't Insert: Failed to Borrow");
+        if (!data_ptr) return; /// PANIC_MSG("Couldn't Insert: Failed to Borrow");
 
         for (usize i = vector->length; i > index; i--)
             data_ptr[i] = data_ptr[i - 1];
@@ -1182,13 +1445,11 @@ static inline void vector_insert(Arena *arena, Vector *vector, usize index, Any 
 
 static inline void vector_remove(Arena *arena, Vector *vector, usize index)
 {
-    if (index >= vector->length)
-        return;
+    if (index >= vector->length) return;
 
     WITH_ARENA (arena) {
         ScopedBorrow(Any, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr)
-            PANIC_MSG("Couldn't Insert: Failed to Borrow");
+        if (!data_ptr) PANIC_MSG("Couldn't Insert: Failed to Borrow");
 
         for (usize i = index; i < vector->length - 1; i++)
             data_ptr[i] = data_ptr[i + 1];
@@ -1203,26 +1464,20 @@ static inline void vector_clear(Vector *vector)
 
 static inline void vector_ensure_capacity(Arena *arena, Vector *vector, usize min_cap)
 {
-    if (vector->capacity >= min_cap)
-        return;
+    if (vector->capacity >= min_cap) return;
 
     usize new_capacity = min_cap == 0 ? 8 : vector->capacity * 2;
-    if (min_cap >= new_capacity)
-        new_capacity = min_cap;
+    if (min_cap >= new_capacity) new_capacity = min_cap;
 
     Handle new_handle = BoxAlloc(arena, new_capacity * sizeof(Any), vector->user_id);
-
     if (vector->length > 0) {
         WITH_ARENA (arena) {
             ScopedBorrow(Any, old_data, vector->data, vector->user_id);
-            /*
-             * We don't use ScopeBorrow instead we use the raw HandleBorrowMut to
-             * prevent new_data from being cleared automatically at the end of the
-             * scope so we can clean it manually when we need to clean it up as
-             * expected.
-             * */
-            Any *new_data = HandleBorrowMut(arena, new_handle, vector->user_id);
 
+             // We don't use ScopeBorrow instead we use the raw HandleBorrowMut to
+             // prevent new_data from being cleared automatically at the end of the
+             // scope so we can clean it manually when we need to clean it up as expected.
+            Any *new_data = HandleBorrowMut(arena, new_handle, vector->user_id);
             if (old_data && new_data) {
                 for (usize i = 0; i < vector->length; i++) {
                     new_data[i] = old_data[i];
@@ -1241,8 +1496,7 @@ static inline void dbg_print(const char *str)
 {
 #if defined(__linux__)
     const char *pointer = str;
-    while (*pointer)
-        pointer++;
+    while (*pointer) pointer++;
     syscall6(SYS_write, 2, (long)str, (long)(pointer - str), 0, 0, 0);
 #endif
 }

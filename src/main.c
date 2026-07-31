@@ -1,7 +1,6 @@
-#include "../include/waks.h"
+#include "../waks.h"
 
-// int main(void)
-// {
-//    io_print_fmt("Hello there");
-//    return 0;
-// }
+int main(void) {
+	io_print_fmt("Hello there");
+	return 0;
+}
