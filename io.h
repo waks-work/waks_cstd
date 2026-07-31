@@ -4,7 +4,7 @@
 #include "arena.h"
 #include "types.h"
 
-#define STR(s) (String){(u8 *)s, sizeof(s) - 1}
+#define WAKS_2STR(s)    (waks_string){(waks_uchar *)s, sizeof(s) - 1}
 #define LOG(level, msg) log_msg(level, STR(msg))
 
 /// usage: void waks_error_handle(const char *context, i32 err_code) {
@@ -32,14 +32,20 @@ typedef __builtin_va_list variadic_list;
 /// Resets the stack or cleans up the compiler internal state
 #define variadic_end(iterator) __builtin_va_end(iterator)
 
-typedef enum { LOG_INFORMATION, LOG_WARNINGS, LOG_ERRORS, LOG_FATALS } LogLevel;
+typedef enum 
+{ 
+	LOG_INFORMATION, 
+	LOG_WARNINGS,
+	LOG_ERRORS,
+	LOG_FATALS 
+} LogLevel;
 
-static inline void log_msg(LogLevel level, String msg);
-static inline void dbg_print_(String str);
-static inline void io_print(String);
-static void io_print_hex(u64 value);
-static inline void io_print_u64(u64 value);
-static inline void io_print_fmt(const char *fmt, ...);
+static inline void log_msg(LogLevel level, waks_string msg);
+static inline void dbg_print_(waks_string str);
+static inline void io_print(waks_string);
+static        void io_print_hex(waks_u64 value);
+static inline void io_print_u64(waks_u64 value);
+static inline void io_print_fmt(const waks_char *fmt, ...);
 static inline void any_print(Any val);
 
 /* Caters for io arguements matched from any type */
@@ -47,15 +53,15 @@ static inline void any_print(Any value)
 {
     match(value)
     {
-        MatchStr(value, str)
-        {
-            io_print(str);
-        }
-        break;
+        // MatchStr(value, str)
+        // {
+        //     io_print(str);
+        // }
+        // break;
 
         MatchChar(value, c)
         {
-            io_print((String){&c, 1});
+            io_print((waks_string){&c, 1});
         }
         break;
         MatchBool(value, b)
@@ -68,17 +74,17 @@ static inline void any_print(Any value)
             if (i == 0) {
                 io_print(from_cstr("0"));
             } else {
-                char buf[20]; // Big enough for i64
-                int pos = 0;
-                u64 num = (i < 0) ? (u64)-i : (u64)i;
-                if (i < 0)
-                    io_print(from_cstr("-"));
+                waks_char buf[20]; // Big enough for i64
+                waks_i32  pos = 0;
+                waks_u64  num = (i < 0) ? (waks_u64)-i : (waks_u64)i;
+
+                if (i < 0) io_print(from_cstr("-"));
                 while (num > 0) {
                     buf[pos++] = (char)((num % 10) + '0');
                     num /= 10;
                 }
-                while (pos > 0)
-                    io_print((String){(u8 *)&buf[--pos], 1});
+
+                while (pos > 0) io_print((waks_string){(waks_uchar *)&buf[--pos], 1});
             }
         }
         break;
@@ -87,14 +93,13 @@ static inline void any_print(Any value)
             if (u == 0) {
                 io_print(from_cstr("0"));
             } else {
-                char buf[20];
-                int pos = 0;
+                waks_char buf[20];
+                waks_i32  pos = 0;
                 while (u > 0) {
                     buf[pos++] = (char)((u % 10) + '0');
                     u /= 10;
                 }
-                while (pos > 0)
-                    io_print((String){(u8 *)&buf[--pos], 1});
+                while (pos > 0) io_print((waks_string){(waks_uchar *)&buf[--pos], 1});
             }
         }
         break;
@@ -110,62 +115,60 @@ static inline void any_print(Any value)
         break;
         MatchPtr(value, ptr)
         {
-            if (ptr == NULL)
-                io_print(from_cstr("Invalid memory not allocated: ptr (null)"));
+            if (ptr == WAKS_NOVALUE) io_print(from_cstr("Invalid memory not allocated: ptr (null)"));
             io_print(from_cstr("Memory allocated successfully: ptr (Ox)"));
 
-            uintptr_t addr = (uintptr_t)ptr;
-            char buf[16];
-            u64 pos = 0;
+            waks_uintptr addr = (waks_uintptr)ptr;
+            waks_char buf[16];
+            waks_u64  pos = 0;
 
             while (addr > 0) {
-                u64 rem = addr % 16;
+                waks_u64 rem = addr % 16;
                 buf[pos++] = (char)((rem < 10) ? (rem + '0') : (rem - 10 + 'a'));
                 addr /= 16;
             }
-            while (pos > 0)
-                io_print((String){(u8 *)&buf[--pos], 1});
+            while (pos > 0) io_print((waks_string){(waks_uchar *)&buf[--pos], 1});
         }
         break;
     }
 }
 
-static inline void io_print_fmt(const char *fmt, ...)
+static inline void io_print_fmt(const waks_char *fmt, ...)
 {
     variadic_list arguements;
     variadic_start(arguements, fmt);
 
     for (const char *pointer = fmt; *pointer != '\0'; pointer++) {
         if (*pointer != '%') {
-            io_print((String){.data = (u8 *)pointer, .length = 1});
+            io_print((waks_string){.data = (waks_uchar *)pointer, .length = 1});
             continue;
         }
 
         pointer++;
         switch (*pointer) {
             case 's': {
-                char *raw = variadic_args(arguements, char *);
+                char *raw = variadic_args(arguements, waks_char *);
                 any_print(AnyStr(from_cstr(raw)));
                 break;
             }
             case 'd': {
-                i32 val = variadic_args(arguements, i32);
+                waks_i32 val = variadic_args(arguements, waks_i32);
                 any_print(AnyInt(val));
                 break;
             }
             case 'u': {
-                u64 val = variadic_args(arguements, u64);
+                waks_u64 val = variadic_args(arguements, waks_u64);
                 any_print(AnyUint(val));
                 break;
             }
             case 'c': {
                 // variadic_args promotes char to int
-                u8 c = (u8)variadic_args(arguements, int);
+                waks_uchar c = (waks_uchar)variadic_args(arguements, waks_i32);
                 any_print(AnyChar(c));
                 break;
             }
             case 'x': {
-                u64 val = variadic_args(arguements, u64);
+                waks_u64 val = variadic_args(arguements, waks_u64);
                 io_print_hex(val); // Reuse your existing hex function
                 break;
             }
@@ -182,7 +185,7 @@ static inline void io_print_fmt(const char *fmt, ...)
     variadic_end(arguements);
 }
 
-static inline void log_msg(LogLevel level, String msg)
+static inline void log_msg(LogLevel level, waks_string msg)
 {
     switch (level) {
         case LOG_INFORMATION: {
@@ -206,32 +209,32 @@ static inline void log_msg(LogLevel level, String msg)
     io_print(STR("\n"));
 }
 
-static inline void dbg_print_(String str)
+static inline void dbg_print_(waks_string str)
 {
 #if defined(__linux__)
-    syscall6(SYS_write, (long)str.data, (long)str.length, 0, 0, 0, 0);
+    waks_syscall6(SYS_write, (long)str.data, (long)str.length, 0, 0, 0, 0);
 #endif
 }
 
-static inline void io_print(String str)
+static inline void io_print(waks_string str)
 {
 #if defined(__linux__)
     // FD 1 is stdout. Your current code was passing data as the FD!
-    syscall6(SYS_write, 1, (long)str.data, (long)str.length, 0, 0, 0);
+    waks_syscall6(SYS_write, 1, (long)str.data, (long)str.length, 0, 0, 0);
 #elif defined(_WIN32) || defined(_WIN64)
     // Windows uses WriteFile or WriteConsole
 #else
-    u16 *vga_buffer = (u16 *)0x8000;
-    static int cursor_pos = 0;
-    for (usize i = 0; i < str.length; i++)
-        vga_buffer[cursor_pos++] = (u16)str.data[i] | (0x07 << 8);
+    waks_u16 *vga_buffer = (waks_u16 *)0x8000;
+    static waks_i32 cursor_pos = 0;
+    for (waks_usize i = 0; i < str.length; i++)
+        vga_buffer[cursor_pos++] = (waks_u16)str.data[i] | (0x07 << 8);
 #endif
 }
 
-static inline void io_print_hex(u64 value)
+static inline void io_print_hex(waks_u64 value)
 {
-    u8 buf[18];
-    static const u8 hex_chars[] = "0123456789ABCDEF";
+    waks_uchar buf[18];
+    static const waks_uchar hex_chars[] = "0123456789ABCDEF";
     buf[0] = '0';
     buf[1] = 'x';
 
@@ -240,7 +243,7 @@ static inline void io_print_hex(u64 value)
         buf[i + 2] = hex_chars[(value >> (i * 4)) & 0xF];
     }
 
-    io_print((String){buf, 18});
+    io_print((waks_string){buf, 18});
 }
 
 #endif
