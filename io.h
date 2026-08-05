@@ -1,7 +1,7 @@
-#ifndef IO_H
-#define IO_H
+#ifndef WAKS_IO_H
+#define WAKS_IO_H
 
-#include "arena.h"
+#include "allocator.h"
 #include "types.h"
 
 #define WAKS_2STR(s)    (waks_string){(waks_uchar *)s, sizeof(s) - 1}

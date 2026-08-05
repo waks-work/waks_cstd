@@ -212,12 +212,26 @@ struct waks_string {
 
 #define STR(literal) ((waks_string){(waks_uchar *)(literal), sizeof(literal) - 1})
 
+// turns the raw c string provided to a string slice with the string and length
+// waks_string string_slice = waks_str_from_cstr("hello there guys");
 static inline waks_string waks_str_from_cstr(const char *str);
+
+// generates a substring from a string_slice from the string, start_pos, lenght of substring   
 static inline waks_string waks_str_sub(waks_string s, waks_usize start, waks_usize length);
+
+// checks the equality between two string slice
 static inline waks_bool   waks_str_eq(waks_string a, waks_string b);
+
+// checks the equality a string slice and a c string 
 static inline waks_bool   waks_str_eq_cstr(waks_string a, const char *b);
+
+// checks for the prefix that the string starts with
 static inline waks_bool   waks_str_starts_with(waks_string s, waks_string prefix);
+
+// checks for the suffix that the string ends with
 static inline waks_bool   waks_str_ends_with(waks_string s, waks_string suffix);
+
+// they do search of the string
 static inline waks_ssize  waks_str_find_char(waks_string s, waks_uchar ch);
 static inline waks_ssize  waks_str_find(waks_string haystack, waks_string needle);
 

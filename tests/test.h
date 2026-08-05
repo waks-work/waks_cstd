@@ -1,42 +1,42 @@
 #ifndef WAKS_TEST
 #define WAKS_TEST
 
-#include "../include/waks.h"
+#include "../waks.h"
 
-static i32 tests_run = 0;
-static i32 tests_failed = 0;
-static b8 _test_current_failed = false;
+static waks_i32 tests_run = 0;
+static waks_i32 tests_failed = 0;
+static waks_bool _test_current_failed = false;
 
 #define TEST_ASSERT(condition, message)                                        \
-  do {                                                                         \
-    tests_run++;                                                               \
-    if (!(condition)) {                                                        \
-      io_print_fmt("[FAIL] %s:%d: { %s }\n", __FILE__, __LINE__, message);     \
-      tests_failed++;                                                          \
-      _test_current_failed = true;                                             \
-    }                                                                          \
-  } while (0)
+    do {                                                                         \
+        tests_run++;                                                               \
+        if (!(condition)) {                                                        \
+            io_print_fmt("[FAIL] %s:%d: { %s }\n", __FILE__, __LINE__, message);     \
+            tests_failed++;                                                          \
+            _test_current_failed = true;                                             \
+        }                                                                          \
+    } while (0)
 
 #define ASSERT_EQ_INT(a, b)                                                    \
-  do {                                                                         \
-    i64 _a = (i64)(a);                                                         \
-    i64 _b = (i64)(b);                                                         \
-    if (_a != _b) {                                                            \
-      io_print_fmt("\n [FAIL] Actual: %d ,Expected: %d\n", _a, _b);            \
-      TEST_ASSERT(false, "Integer equality failed");                           \
-    } else {                                                                   \
-      tests_run++;                                                             \
-    }                                                                          \
-  } while (0)
+    do {                                                                         \
+        waks_i64 _a = (waks_i64)(a);                                                         \
+        waks_i64 _b = (waks_i64)(b);                                                         \
+        if (_a != _b) {                                                            \
+            io_print_fmt("\n [FAIL] Actual: %d ,Expected: %d\n", _a, _b);            \
+            TEST_ASSERT(false, "Integer equality failed");                           \
+        } else {                                                                   \
+            tests_run++;                                                             \
+        }                                                                          \
+    } while (0)
 
 #define TEST_REPORT()                                                          \
-  do {                                                                         \
-    if (tests_failed == 0) {                                                   \
-      io_print_fmt("SUCCESS: %d/%d tests passed.\n", tests_run, tests_run);    \
-    } else {                                                                   \
-      io_print_fmt("FAILURE: %d/%d tests failed.\n", tests_failed, tests_run); \
-    }                                                                          \
-  } while (0)
+    do {                                                                         \
+        if (tests_failed == 0) {                                                   \
+            io_print_fmt("SUCCESS: %d/%d tests passed.\n", tests_run, tests_run);    \
+        } else {                                                                   \
+            io_print_fmt("FAILURE: %d/%d tests failed.\n", tests_failed, tests_run); \
+        }                                                                          \
+    } while (0)
 
 /// void test_arena_basics() {
 ///    Arena *arena = ArenaAlloc((u64)GB(1));
@@ -52,10 +52,9 @@ static b8 _test_current_failed = false;
 ///    }
 ///    ArenaRelease(arena);
 ///}
-#define TEST(description)                                                      \
-  for (int _i = (io_print_fmt("\n [TEST] %s...", description),                 \
-                 _test_current_failed = false, 0);                             \
-       _i < 1;                                                                 \
-       _i++, io_print(_test_current_failed ? STR("\n") : STR(" OK \n")))
+#define TEST(description) \
+    for (int _i = (io_print_fmt("\n [TEST] %s...", description), \
+         _test_current_failed = false, 0); _i < 1; _i++, \
+         io_print(_test_current_failed ? STR("\n") : STR(" OK \n")))
 
 #endif

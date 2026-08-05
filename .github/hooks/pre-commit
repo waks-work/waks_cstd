@@ -4,7 +4,7 @@ set -e
 echo "🔍 Running Waks_CStd pre-commit checks..."
 
 # Only format changed files to speed this up significantly
-git diff --cached --name-only --diff-filter=ACM | grep -E "\.(c|h)$" | xargs -r clang-format -i
+# git diff --cached --name-only --diff-filter=ACM | grep -E "\.(c|h)$" | xargs -r clang-format -i
 
 # Run cppcheck only on changed files
 git diff --cached --name-only --diff-filter=ACM | grep -E "\.(c|h)$" | xargs -r cppcheck --enable=all --suppress=missingIncludeSystem -I include
