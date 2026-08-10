@@ -4,6 +4,40 @@
 
 #include "allocator.h"
 
+
+/// Any val;
+/// WAKS_TEMP_ARENA(my_arena) {
+///    Any *p = vector_safe_get(my_arena, my_vec, 5);
+///    if (p) val = *p; // Copy out immediately
+/// }
+// HandleDefer cleans up the borrow here
+#define vector_safe_get(arena, vector, index)                                                      \
+    ((index < vector.length) ? (HandleDefer(arena, vector.data),                                   \
+                                (Any *)HandleBorrow(arena, vector.data, vector.user_id) + index)   \
+                             : WAKS_NOVALUE)
+
+/*
+ * EXAMPLE: Vector<T>
+ * Vector nums = vector_init(arena, 8, sizeof(u32), uid);
+ * vector_push_t(arena, &nums, (u32)10);
+ * vector_push_t(arena, &nums, (u32)20);
+ */
+#define vector_push_t(arena, vec, value)                                                           \
+    do {                                                                                           \
+        WAKS_AUTO _tmp = (value);                                                                       \
+        vector_push_raw(arena, vec, &_tmp);                                                        \
+    } while (0)
+
+/* u32 x = vector_get_t(arena, &nums, u32, 1); */
+#define vector_get_t(arena, vec, T, index) (*(T *)vector_get_raw(arena, vec, index))
+
+//  for (ListNode *curr = line_list; curr != WAKS_NOVALUE; curr = curr->next) {
+//      EditorLine *line_data = container_of(curr, EditorLine, node);
+//      (Do something with line_data->content...)
+//  }
+#define container_of(ptr, type, member) ((type *)((char *)(ptr) - (waks_uintptr)&((type *)0)->member))
+
+
 /// OPTION API
 typedef struct Option Option;
 struct Option
