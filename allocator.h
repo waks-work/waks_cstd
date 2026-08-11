@@ -351,11 +351,6 @@ void        waks_arena_release(waks_arena *arena);
 // versions while memory is retained.
 void        waks_arena_reset(waks_arena *arena);
 
-// @TODO(waks-work): Try to explain this better. 
-// Allows it to automatically release it.
-void        _auto_release_handle(waks_handle *handle);
-
-
 /// ALLOCATOR STRUCTS 
 //
 
@@ -421,8 +416,15 @@ void         waks_handle_defer(waks_arena *arena, waks_handle handle);
 
 /// AUTO RELEASE FEATURES
 
+// @TODO(waks-work): Try to explain this better. 
+
+// This function when called in macro the WAKS_scoped_borow 
+// allow a handle to be released once it goes out of scope.
 void _auto_release_handle(waks_handle *handle);
 void _raii_release_now(void *pointer);
+
+// This when called allow a handle or borrowed handle to be  
+// released once waks_arena_reset is called.
 void _raii_release_deferred(void *pointer);
 
 /// AUTO RELEASE IMPLEMENTATION

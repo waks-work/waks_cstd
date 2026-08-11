@@ -1,17 +1,22 @@
+
 #ifndef WAKS_IO_H
 #define WAKS_IO_H
 
-#include "allocator.h"
-#include "types.h"
+#include "container.h"
 
+#ifdef __cplusplus 
+extern "C" { 
+#endif
+
+
+// This macro allows us to convert a string to a waks_string slice
 #define WAKS_2STR(s) (waks_string){(waks_uchar *)(s), sizeof((s)) - 1}
+
+// This macro allows us to log an error messages 
 #define WAKS_LOG(level, msg) waks_log_msg((level), WAKS_2STR((msg)))
 
-/// usage: void waks_error_handle(const char *context, i32 err_code) {
-/// usage:     io_print_fmt("[WAKS ERROR] %s: %s (Code: %d) \n", context,
-/// usage:     waks_strerror(err_code), err_code);
-/// usage:     LOG_FMT(LOG_ERROR,"ERROR", "Failed in %s with code %d",
-/// usage:     context,err_code) usage: }
+// This macro allows us to log formatted error messages allowing 
+// for easier debugging.
 #define WAKS_LOG_FMT(level, msg, fmt, ...)     \
     do {                                       \
         waks_log_msg((level), (msg));          \
@@ -19,17 +24,16 @@
         waks_io_print(STR("\n"));              \
     } while (0)
 
-/// Puts the variadic arguements on the stack or in registers
-/// The __builtin uses the compiler knowledge
+// This is the variadic arguements on the stack or in registers
 typedef __builtin_va_list variadic_list;
 
-/// Acts as a pointer or an iterator to find those arguements in memory
+// This acts as a pointer or an iterator to find those arguements in memory
 #define variadic_start(iterator, last_arg) __builtin_va_start((iterator), (last_arg))
 
-/// Grabs the data and moves forward
+// This Grabs the data and moves forward
 #define variadic_args(iterator, type) __builtin_va_arg(iterator, type)
 
-/// Resets the stack or cleans up the compiler internal state
+// This resets the stack or cleans up the compiler internal state
 #define variadic_end(iterator) __builtin_va_end((iterator))
 
 typedef enum 
@@ -47,6 +51,15 @@ void waks_io_print_hex(waks_u64 value);
 void waks_io_print_u64(waks_u64 value);
 void waks_io_print_fmt(const waks_char *fmt, ...);
 void waks_any_print(Any val);
+
+#ifdef __cplusplus 
+} 
+#endif
+
+#endif // WAKS_IO_H
+
+
+#ifdef WAKS_IO_IMPLEMENTATION 
 
 /* Caters for io arguements matched from any type */
 void waks_any_print(Any value)
@@ -246,4 +259,4 @@ void waks_io_print_hex(waks_u64 value)
     waks_io_print((waks_string){buf, 18});
 }
 
-#endif
+#endif // WAKS_IO_IMPLEMENTATION
