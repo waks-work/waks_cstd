@@ -8,3 +8,7 @@ CompileFlags:
     - "-D_GNU_SOURCE"
   # This makes clangd ignore any broken/empty JSON databases
   CompilationDatabase: "."
+
+SemanticTokens:
+  DisabledKinds: [InactiveCode]
+   

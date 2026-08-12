@@ -1,60 +1,52 @@
-#ifndef WAKS_TEST
-#define WAKS_TEST
+#ifndef WAKS_TEST_H
+#define WAKS_TEST_H
 
 #include "../waks.h"
 
-static waks_i32 tests_run = 0;
-static waks_i32 tests_failed = 0;
+static waks_i32  tests_run           = 0;
+static waks_i32  tests_failed        = 0;
 static waks_bool _test_current_failed = false;
 
-#define TEST_ASSERT(condition, message)                                        \
-    do {                                                                         \
-        tests_run++;                                                               \
-        if (!(condition)) {                                                        \
-            io_print_fmt("[FAIL] %s:%d: { %s }\n", __FILE__, __LINE__, message);     \
-            tests_failed++;                                                          \
-            _test_current_failed = true;                                             \
-        }                                                                          \
+#define TEST_ASSERT(condition, message)                                         \
+    do {                                                                        \
+        tests_run++;                                                            \
+        if (!(condition)) {                                                     \
+            waks_io_print_fmt("[FAIL] %s:%d: { %s }\n",                         \
+                              __FILE__, __LINE__, message);                     \
+            tests_failed++;                                                     \
+            _test_current_failed = true;                                        \
+        }                                                                       \
     } while (0)
 
-#define ASSERT_EQ_INT(a, b)                                                    \
-    do {                                                                         \
-        waks_i64 _a = (waks_i64)(a);                                                         \
-        waks_i64 _b = (waks_i64)(b);                                                         \
-        if (_a != _b) {                                                            \
-            io_print_fmt("\n [FAIL] Actual: %d ,Expected: %d\n", _a, _b);            \
-            TEST_ASSERT(false, "Integer equality failed");                           \
-        } else {                                                                   \
-            tests_run++;                                                             \
-        }                                                                          \
+#define ASSERT_EQ_INT(a, b)                                                     \
+    do {                                                                        \
+        waks_i64 _a = (waks_i64)(a);                                            \
+        waks_i64 _b = (waks_i64)(b);                                            \
+        if (_a != _b) {                                                         \
+            waks_io_print_fmt("\n [FAIL] Actual: %d ,Expected: %d\n", _a, _b);  \
+            TEST_ASSERT(false, "Integer equality failed");                      \
+        } else {                                                                \
+            tests_run++;                                                        \
+        }                                                                       \
     } while (0)
 
-#define TEST_REPORT()                                                          \
-    do {                                                                         \
-        if (tests_failed == 0) {                                                   \
-            io_print_fmt("SUCCESS: %d/%d tests passed.\n", tests_run, tests_run);    \
-        } else {                                                                   \
-            io_print_fmt("FAILURE: %d/%d tests failed.\n", tests_failed, tests_run); \
-        }                                                                          \
+#define TEST_REPORT()                                                           \
+    do {                                                                        \
+        waks_io_print(WAKS_2STR("\n========================================\n")); \
+        if (tests_failed == 0) {                                                \
+            waks_io_print_fmt("SUCCESS: %d/%d assertions passed.\n",            \
+                              tests_run, tests_run);                            \
+        } else {                                                                \
+            waks_io_print_fmt("FAILURE: %d failed out of %d assertions.\n",    \
+                              tests_failed, tests_run);                         \
+        }                                                                       \
+        waks_io_print(WAKS_2STR("========================================\n"));   \
     } while (0)
 
-/// void test_arena_basics() {
-///    Arena *arena = ArenaAlloc((u64)GB(1));
-///    TEST("Verifying 16-byte alignment of BoxAlloc") {
-///        Handle h1 = BoxAlloc(arena, 1, 100);
-///        Handle h2 = BoxAlloc(arena, 1, 100);
-///        ASSERT_EQ_INT((h2.offset - h1.offset) % 16, 0);
-///    }
-///    TEST("Handling Out-of-Memory gracefully") {
-///        Handle big = BoxAlloc(arena, arena->commited + 1, 100);
-///        TEST_ASSERT(big.version == 0, "Arena should return null handle on
-///        OOM");
-///    }
-///    ArenaRelease(arena);
-///}
-#define TEST(description) \
-    for (int _i = (io_print_fmt("\n [TEST] %s...", description), \
-         _test_current_failed = false, 0); _i < 1; _i++, \
-         io_print(_test_current_failed ? STR("\n") : STR(" OK \n")))
+#define TEST(description)                                                       \
+    for (int _i = (waks_io_print_fmt("\n [TEST] %s...", (waks_char *)description),           \
+                   _test_current_failed = false, 0);                             \
+         _i < 1;                                                                \
+         _i++, waks_io_print(_test_current_failed ? WAKS_2STR("\n") : WAKS_2STR(" OK \n")))
 
-#endif
+#endif // WAKS_TEST_H

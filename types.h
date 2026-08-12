@@ -1,6 +1,11 @@
 #ifndef WAKS_TYPES_H
 #define WAKS_TYPES_H
 
+
+#ifdef __cplusplus 
+extern "C" { 
+#endif
+
 #if !defined(WAKS_NO_STDHEADERS)
     #include <stdint.h>
     #include <stddef.h>
@@ -136,7 +141,8 @@ struct WaksContext {
 };
 
 // we it is implemented in the assembly fie
-extern WaksContext global_panic_env;
+// think of extern before
+WaksContext global_panic_env;
 
 #if defined(__GNUC__) || defined (__clang__)
 	__attribute__((returns_twice)) extern waks_i64 waks_save_state(void);
@@ -144,7 +150,8 @@ extern WaksContext global_panic_env;
 	extern waks_i64 waks_save_state(void);
 #endif 
 
-extern void waks_load_state(void);
+// @TODO(waks-work): extern before to be thought
+void waks_load_state(void);
 
 enum any_tag {
 	_tag_none = 0,
@@ -210,49 +217,53 @@ struct waks_string {
     waks_usize  length;
 };
 
-#define STR(literal) ((waks_string){(waks_uchar *)(literal), sizeof(literal) - 1})
+#define WAKS_STR(literal) ((waks_string){(waks_uchar *)(literal), sizeof(literal) - 1})
 
 // turns the raw c string provided to a string slice with the string and length
 // waks_string string_slice = waks_str_from_cstr("hello there guys");
-static inline waks_string waks_str_from_cstr(const char *str);
+waks_string waks_str_from_cstr(const char *str);
 
 // generates a substring from a string_slice from the string, start_pos, lenght of substring   
-static inline waks_string waks_str_sub(waks_string s, waks_usize start, waks_usize length);
+waks_string waks_str_sub(waks_string s, waks_usize start, waks_usize length);
 
 // checks the equality between two string slice
-static inline waks_bool   waks_str_eq(waks_string a, waks_string b);
+waks_bool   waks_str_eq(waks_string a, waks_string b);
 
 // checks the equality a string slice and a c string 
-static inline waks_bool   waks_str_eq_cstr(waks_string a, const char *b);
+waks_bool   waks_str_eq_cstr(waks_string a, const char *b);
 
 // checks for the prefix that the string starts with
-static inline waks_bool   waks_str_starts_with(waks_string s, waks_string prefix);
+waks_bool   waks_str_starts_with(waks_string s, waks_string prefix);
 
 // checks for the suffix that the string ends with
-static inline waks_bool   waks_str_ends_with(waks_string s, waks_string suffix);
+waks_bool   waks_str_ends_with(waks_string s, waks_string suffix);
 
 // they do search of the string
-static inline waks_ssize  waks_str_find_char(waks_string s, waks_uchar ch);
-static inline waks_ssize  waks_str_find(waks_string haystack, waks_string needle);
+waks_ssize  waks_str_find_char(waks_string s, waks_uchar ch);
+waks_ssize  waks_str_find(waks_string haystack, waks_string needle);
 
 // trim whitespace from the string
-static inline waks_string waks_str_trim_left(waks_string s);
-static inline waks_string waks_str_trim_right(waks_string s);
-static inline waks_string waks_str_trim(waks_string s);
+waks_string waks_str_trim_left(waks_string s);
+waks_string waks_str_trim_right(waks_string s);
+waks_string waks_str_trim(waks_string s);
 
 
 // Helpers
-static inline Any AnyStr(waks_string str);
-static inline Any AnyInt( waks_i64 value);
-static inline Any AnyUint(waks_u64 value);
-static inline Any AnyChar(waks_uchar value);
-static inline Any AnyBool(waks_bool strict);
-static inline Any AnyWaks(WaksResult result);
-static inline Any AnyNone(void);
-static inline Any AnyPtr(void *ptr);
+Any AnyStr(waks_string str);
+Any AnyInt( waks_i64 value);
+Any AnyUint(waks_u64 value);
+Any AnyChar(waks_uchar value);
+Any AnyBool(waks_bool strict);
+Any AnyWaks(WaksResult result);
+Any AnyNone(void);
+Any AnyPtr(void *ptr);
 
-static inline waks_string from_cstr(const char *str);
-static inline const char *waks_strerror(WaksResult error);
+waks_string from_cstr(const char *str);
+const char *waks_strerror(WaksResult error);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // !WAKS_TYPES_H
 
@@ -263,7 +274,7 @@ static inline const char *waks_strerror(WaksResult error);
 /// vector_push(&v, AnyInt(42));
 /// vector_push(&v, AnyStr(from_cstr("Hello Waks")));
 /// vector_push(&v, AnyBool(true));
-static inline Any AnyUint(waks_u64 value) {
+Any AnyUint(waks_u64 value) {
     Any a;
     a.tag = _tag_u64;
     a._pad = 0;
@@ -271,7 +282,7 @@ static inline Any AnyUint(waks_u64 value) {
     return a;
 }
 
-static inline Any AnyInt(waks_i64 value) {
+Any AnyInt(waks_i64 value) {
     Any a;
     a.tag = _tag_i64;
     a._pad = 0;
@@ -279,7 +290,7 @@ static inline Any AnyInt(waks_i64 value) {
     return a;
 }
 
-static inline Any AnyChar(waks_uchar value) {
+Any AnyChar(waks_uchar value) {
     Any a;
     a.tag = _tag_char;
     a._pad = 0;
@@ -287,7 +298,7 @@ static inline Any AnyChar(waks_uchar value) {
     return a;
 }
 
-static inline Any AnyBool(waks_bool value) {
+Any AnyBool(waks_bool value) {
     Any a;
     a.tag = _tag_bool;
     a._pad = 0;
@@ -295,7 +306,7 @@ static inline Any AnyBool(waks_bool value) {
     return a;
 }
 
-static inline Any AnyNone(void) {
+Any AnyNone(void) {
     Any a;
     a.tag = _tag_none;
     a._pad = 0;
@@ -303,7 +314,7 @@ static inline Any AnyNone(void) {
     return a;
 }
 
-static inline Any AnyWaks(WaksResult result) {
+Any AnyWaks(WaksResult result) {
     Any a;
     a.tag = _tag_waks_err;
     a._pad = 0;
@@ -311,7 +322,7 @@ static inline Any AnyWaks(WaksResult result) {
     return a;
 }
 
-static inline Any AnyPtr(void *ptr) {
+Any AnyPtr(void *ptr) {
     Any a;
     a.tag = _tag_ptr;
     a._pad = 0;
@@ -319,7 +330,7 @@ static inline Any AnyPtr(void *ptr) {
     return a;
 }
 
-static inline waks_string from_cstr(const char *str) {
+waks_string from_cstr(const char *str) {
     waks_usize len = 0;
     if (str) {
         while (str[len]) len++;
@@ -327,13 +338,13 @@ static inline waks_string from_cstr(const char *str) {
     return (waks_string){(waks_uchar *)str, len};
 }
 
-static inline const char *waks_strerror(WaksResult error) {
+const char *waks_strerror(WaksResult error) {
     switch (error) {
 #define X(code, string) case code: return string;
     #include "waks_error.inc"
 #undef X
     default:
-        return "UNKNOWN STRING";
+        return "UNKNOWN WAKS_STRING";
     }
 }
 
@@ -342,7 +353,7 @@ static inline const char *waks_strerror(WaksResult error) {
 ///
 
 /** Create a waks_string from a null-terminated C string */
-static inline waks_string waks_str_from_cstr(const char *str) {
+waks_string waks_str_from_cstr(const char *str) {
     waks_usize len = 0;
     if (str) {
         while (str[len]) len++;
@@ -351,7 +362,7 @@ static inline waks_string waks_str_from_cstr(const char *str) {
 }
 
 /** Create a sub-slice (substring). Bounds-checked to prevent buffer overruns */
-static inline waks_string waks_str_sub(waks_string s, waks_usize start, waks_usize length) {
+waks_string waks_str_sub(waks_string s, waks_usize start, waks_usize length) {
     if (start >= s.length) {
         return (waks_string){s.data + s.length, 0};
     }
@@ -363,7 +374,7 @@ static inline waks_string waks_str_sub(waks_string s, waks_usize start, waks_usi
 }
 
 /** Check equality between two waks_strings */
-static inline waks_bool waks_str_eq(waks_string a, waks_string b) {
+waks_bool waks_str_eq(waks_string a, waks_string b) {
     if (a.length != b.length) return waks_false;
     if (a.data == b.data)     return waks_true;
 
@@ -374,7 +385,7 @@ static inline waks_bool waks_str_eq(waks_string a, waks_string b) {
 }
 
 /** Check equality between a waks_string and a null-terminated C string */
-static inline waks_bool waks_str_eq_cstr(waks_string a, const char *b) {
+waks_bool waks_str_eq_cstr(waks_string a, const char *b) {
     if (!b) return (a.length == 0);
     
     waks_usize i = 0;
@@ -387,19 +398,19 @@ static inline waks_bool waks_str_eq_cstr(waks_string a, const char *b) {
 }
 
 /** Returns true if string starts with given prefix */
-static inline waks_bool waks_str_starts_with(waks_string s, waks_string prefix) {
+waks_bool waks_str_starts_with(waks_string s, waks_string prefix) {
     if (prefix.length > s.length) return waks_false;
     return waks_str_eq(waks_str_sub(s, 0, prefix.length), prefix);
 }
 
 /** Returns true if string ends with given suffix */
-static inline waks_bool waks_str_ends_with(waks_string s, waks_string suffix) {
+waks_bool waks_str_ends_with(waks_string s, waks_string suffix) {
     if (suffix.length > s.length) return waks_false;
     return waks_str_eq(waks_str_sub(s, s.length - suffix.length, suffix.length), suffix);
 }
 
 /** Finds first occurrence of character in string. Returns index or -1 if not found */
-static inline waks_ssize waks_str_find_char(waks_string s, waks_uchar ch) {
+waks_ssize waks_str_find_char(waks_string s, waks_uchar ch) {
     for (waks_usize i = 0; i < s.length; i++) {
         if (s.data[i] == ch) return (waks_ssize)i;
     }
@@ -407,7 +418,7 @@ static inline waks_ssize waks_str_find_char(waks_string s, waks_uchar ch) {
 }
 
 /** Substring search using standard search loop. Returns index or -1 if not found */
-static inline waks_ssize waks_str_find(waks_string haystack, waks_string needle) {
+waks_ssize waks_str_find(waks_string haystack, waks_string needle) {
     if (needle.length == 0)               return 0;
     if (needle.length > haystack.length) return -1;
 
@@ -426,7 +437,7 @@ static inline waks_ssize waks_str_find(waks_string haystack, waks_string needle)
 }
 
 /** Trim leading whitespace */
-static inline waks_string waks_str_trim_left(waks_string s) {
+waks_string waks_str_trim_left(waks_string s) {
     waks_usize start = 0;
     while (start < s.length) {
         waks_uchar c = s.data[start];
@@ -439,7 +450,7 @@ static inline waks_string waks_str_trim_left(waks_string s) {
 }
 
 /** Trim trailing whitespace */
-static inline waks_string waks_str_trim_right(waks_string s) {
+waks_string waks_str_trim_right(waks_string s) {
     waks_usize len = s.length;
     while (len > 0) {
         waks_uchar c = s.data[len - 1];
@@ -452,7 +463,7 @@ static inline waks_string waks_str_trim_right(waks_string s) {
 }
 
 /** Trim both leading and trailing whitespace */
-static inline waks_string waks_str_trim(waks_string s) {
+waks_string waks_str_trim(waks_string s) {
     return waks_str_trim_right(waks_str_trim_left(s));
 }
 
