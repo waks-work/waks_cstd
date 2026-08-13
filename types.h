@@ -107,6 +107,9 @@ extern "C" {
 
 #endif // WAKS_NO_STDHEADERS
 
+#define WAKS_2CSTR_CAST(waks_cstring) (waks_char *)(waks_cstring)
+#define WAKS_2UCSTR_CAST(waks_cstring) (waks_uchar *)(waks_cstring)
+
 // compiler builtins (??? explain deeply) &&& WAKS_AUTO implementation
 #define WAKS_COMPILER_PRAGMA(x) _Pragma(#x)
 
@@ -249,7 +252,7 @@ waks_string waks_str_trim(waks_string s);
 
 
 // Helpers
-Any AnyStr(waks_string str);
+// Any AnyStr(waks_string str);
 Any AnyInt( waks_i64 value);
 Any AnyUint(waks_u64 value);
 Any AnyChar(waks_uchar value);
@@ -258,8 +261,8 @@ Any AnyWaks(WaksResult result);
 Any AnyNone(void);
 Any AnyPtr(void *ptr);
 
-waks_string from_cstr(const char *str);
-const char *waks_strerror(WaksResult error);
+waks_string      waks_from_cstr(const waks_char *str);
+const waks_char *waks_strerror(WaksResult error);
 
 #ifdef __cplusplus
 }
@@ -330,7 +333,7 @@ Any AnyPtr(void *ptr) {
     return a;
 }
 
-waks_string from_cstr(const char *str) {
+waks_string waks_from_cstr(const waks_char *str) {
     waks_usize len = 0;
     if (str) {
         while (str[len]) len++;
@@ -338,13 +341,13 @@ waks_string from_cstr(const char *str) {
     return (waks_string){(waks_uchar *)str, len};
 }
 
-const char *waks_strerror(WaksResult error) {
+const waks_char *waks_strerror(WaksResult error) {
     switch (error) {
-#define X(code, string) case code: return string;
+#define X(code, string) case code: return WAKS_2CSTR_CAST(string);
     #include "waks_error.inc"
 #undef X
     default:
-        return "UNKNOWN WAKS_STRING";
+        return WAKS_2CSTR_CAST("UNKNOWN WAKS_STRING");
     }
 }
 

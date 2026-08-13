@@ -25,6 +25,7 @@ $CC \
     -Wextra \
     -pedantic \
     -ffreestanding \
+    -fno-stack-protector \
     -I. \
     -c "$UNITY_C" \
     -o "$BUILD/waks.o"
@@ -53,6 +54,7 @@ if [ -f "$TEST_SRC" ]; then
         -Wall \
         -Wextra \
         -ffreestanding \
+        -fno-stack-protector \
         -nostdlib \
         -I. \
         "$TEST_SRC" \

@@ -52,7 +52,7 @@ void waks_dbg_print_(waks_string str);
 
 // This is the primary standard output stream printer 
 // (fd 1 or VGA buffer fallback).
-void waks_io_print(waks_string);
+void waks_io_print(waks_string str);
 
 // This prints a 64 bit unsigned interger as a 16-digit 
 // hexadecimal string with the prefix 0x
@@ -96,7 +96,7 @@ void waks_any_print(Any value)
         } break;
 
         MatchBool(value, b) {
-            waks_io_print(b ? from_cstr("true") : from_cstr("false"));
+            waks_io_print(b ? WAKS_STR("true") : WAKS_STR("false"));
         } break;
 
         MatchInt(value, i) {
@@ -124,7 +124,7 @@ void waks_any_print(Any value)
 
         MatchUint(value, u) {
             if (u == 0) {
-                waks_io_print(from_cstr("0"));
+                waks_io_print(WAKS_STR("0"));
             } else {
                 waks_char buf[20];
                 waks_i32  pos = 0;
@@ -137,11 +137,11 @@ void waks_any_print(Any value)
         } break;
 
         MatchNone(value) {
-            waks_io_print(from_cstr("none"));
+            waks_io_print(WAKS_STR("none"));
         } break;
 
         MatchWaks(value, err) {
-            waks_io_print(from_cstr((char *)waks_strerror(err)));
+            waks_io_print(WAKS_STR((char *)waks_strerror(err)));
         } break;
 
         MatchPtr(value, ptr) {
@@ -160,7 +160,7 @@ void waks_io_print_fmt(const waks_char *fmt, ...)
     waks_variadic_list arguements;
     WAKS_variadic_start(arguements, fmt);
 
-    for (const char *pointer = fmt; *pointer != '\0'; pointer++) {
+    for (const waks_char *pointer = fmt; *pointer != '\0'; pointer++) {
         if (*pointer != '%') {
             waks_io_print((waks_string){.data = (waks_uchar *)pointer, .length = 1});
             continue;
@@ -169,8 +169,11 @@ void waks_io_print_fmt(const waks_char *fmt, ...)
         pointer++;
         switch (*pointer) {
             case 's': {
-                char *raw = WAKS_variadic_args(arguements, waks_char *);
-                waks_any_print(AnyStr(from_cstr(raw)));
+                waks_char *raw = WAKS_variadic_args(arguements, waks_char *);
+				if (raw) {
+					waks_string str = WAKS_STR(raw);
+                    waks_io_print(str);
+				}
                 break;
             }
             case 'd': {
@@ -252,7 +255,6 @@ void waks_io_print(waks_string str)
         vga_buffer[cursor_pos++] = (waks_u16)str.data[i] | (0x07 << 8);
 #endif
 }
-
 void waks_io_print_hex(waks_u64 value)
 {
     waks_uchar buf[18];
@@ -260,11 +262,9 @@ void waks_io_print_hex(waks_u64 value)
     buf[0] = '0';
     buf[1] = 'x';
 
-    // Print all 16 digits for consistent memory address debugging
     for (int i = 15; i >= 0; i--) {
-        buf[i + 2] = hex_chars[(value >> (i * 4)) & 0xF];
+        buf[17 - i] = hex_chars[(value >> (i * 4)) & 0xF];
     }
-
     waks_io_print((waks_string){buf, 18});
 }
 

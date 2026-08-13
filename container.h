@@ -149,7 +149,7 @@ void   waks_array_list_pop_raw(waks_arena *arena, waks_array_list *vector);
 
 waks_option waks_option_none(void)
 {
-    return (waks_option){.value = {0, 0}, .has_value = false};
+    return (waks_option){.value = {0, 0, 0, 0}, .has_value = false};
 }
 
 waks_option waks_option_some(waks_handle handle)
@@ -161,7 +161,7 @@ waks_option waks_option_some(waks_handle handle)
 // by reference and not by value 
 waks_handle waks_option_unwrap(waks_option *opt)
 {
-    if (!opt) return (waks_handle){0, 0};
+    if (!opt) return (waks_handle){0, 0, 0, 0};
 	 // TODO(waks-work):implement the panic issue and check the logic as it is
 	 // needed and used in alot of places not just here and it may lead to issue
 	 // it is the part returning segmentation fault */

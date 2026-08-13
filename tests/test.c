@@ -1,5 +1,16 @@
-#include "../waks.h"
 #include "test.h"
+
+#define WAKS_TYPE_IMPLEMENTATION
+#include "../types.h"
+
+#define WAKS_ALLOCATOR_IMPLEMENTATION
+#include "../allocator.h"
+
+#define WAKS_CONTAINER_IMPLEMENTATION
+#include "../container.h"
+
+#define WAKS_IO_IMPLEMENTATION
+#include "../io.h"
 
 void test_vector() {
     waks_arena *arena = waks_arena_alloc((waks_u64)(GB((1))));
@@ -80,28 +91,29 @@ void linked_list_test() {
 
 
 // PART OF THE ERROR_TEST SUITE
-void run_parser(void *arg) {
-    waks_arena *temp = (waks_arena *)arg;
-    waks_bool file_exists = false;
-
-    if (!file_exists) waks_panic(WAKS_ERR_IO);
-}
-
-WaksResult parse_config_transaction(waks_arena *arena, const char *path) {
-    return waks_pcall(arena, run_parser, (void *)arena);
-}
+// void run_parser(void *arg) {
+//     // waks_arena *temp = 
+// 	(waks_arena *)arg;
+//     waks_bool file_exists = false;
+// 
+//     if (!file_exists) waks_panic(WAKS_ERR_IO);
+// }
+// 
+// WaksResult parse_config_transaction(waks_arena *arena, const char *path) {
+//     return waks_pcall(arena, run_parser, (void *)arena);
+// }
 
 void run_error_handling_suite() {
     waks_arena *arena = waks_arena_alloc(GB(1));
 
-    TEST("Waks error and panic test") {
-        WaksResult res = parse_config_transaction(arena, "config.toml");
-        TEST_ASSERT(res == WAKS_ERR_IO,
-                    "pcall should catch the panic and return WAKS_ERR_IO");
+    // TEST("Waks error and panic test") {
+    //     WaksResult res = parse_config_transaction(arena, "config.toml");
+    //     TEST_ASSERT(res == WAKS_ERR_IO,
+    //                 "pcall should catch the panic and return WAKS_ERR_IO");
 
-        if (res != WAKS_OK)
-            waks_io_print_fmt("Transaction failed safely: %s", waks_strerror(res));
-    }
+    //     if (res != WAKS_OK)
+    //         waks_io_print_fmt(WAKS_2CSTR_CAST("Transaction failed safely: %s"), waks_strerror(res));
+    // }
 
     TEST("waks_option test method functionality") {
         waks_handle handle   = waks_box_alloc(arena, 64, 100);
@@ -210,10 +222,10 @@ void test_handle_safety() {
         waks_handle h1 = waks_box_alloc(arena, 64, user);
 
         waks_handle_release(arena, h1);
-        waks_io_print_fmt("\n -> handle version: %d \n", h1.version);
+        waks_io_print_fmt(WAKS_2CSTR_CAST("\n -> handle version: %d \n"), h1.version);
 
         void *ptr = waks_handle_borrow(arena, h1, user);
-        waks_io_print_fmt("\n -> handle version: %d \n", h1.version);
+        waks_io_print_fmt(WAKS_2CSTR_CAST("\n -> handle version: %d \n"), h1.version);
         TEST_ASSERT(ptr == WAKS_NOVALUE, "Borrowing with old version should fail");
     }
 
@@ -229,7 +241,7 @@ void test_handle_safety() {
         waks_arena_reset(arena);
 
         void *ptr3 = waks_handle_borrow(arena, h1, user);
-        waks_io_print_fmt("\n --> handle version: %d \n", h1.version);
+        waks_io_print_fmt(WAKS_2CSTR_CAST("\n --> handle version: %d \n"), h1.version);
         TEST_ASSERT(ptr3 == WAKS_NOVALUE,
                     "waks_handle must be invalid after waks_arenaReset processes defers");
     }

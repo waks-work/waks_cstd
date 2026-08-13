@@ -56,7 +56,7 @@ long waks_syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 // STDERR. It performs zero heap allocations and by passes the 
 // stdio buffering, ensuring logs are emmited during critical  
 // crashes or allocator panics.
-void waks_dbg_print(const waks_uchar *str);
+void waks_dbg_print(const waks_char *str);
 
 // This function when called converts/fmts a 16 bit signed integer into 
 // ASCII using a small stack-allocated buffer and modulo operations.
@@ -71,9 +71,9 @@ void waks_os_panic(void);
 // panic message and the file location and line where the panic occured
 #define WAKS_PANIC_MSG(msg)                   \
     do {                                      \
-        waks_dbg_print("[PANIC] ");           \
-        waks_dbg_print((msg));                \
-        waks_dbg_print(" at " __FILE__ ":");  \
+        waks_dbg_print(WAKS_2CSTR_CAST("[PANIC] "));           \
+        waks_dbg_print(WAKS_2CSTR_CAST((msg)));                \
+        waks_dbg_print(WAKS_2CSTR_CAST(" at " __FILE__ ":"));  \
         waks_dbg_print_int(__LINE__);         \
         waks_os_panic();                      \
     } while (0)
@@ -557,6 +557,21 @@ void waks_os_panic(void)
 #endif
 }
 
+// memset and memcpy implementation 
+void *memcpy(void *dst, const void *src, waks_usize n)
+{
+    waks_uchar *d = (waks_uchar *)dst;
+    const waks_uchar *s = (const waks_uchar *)src;
+    for (waks_usize i = 0; i < n; i++) d[i] = s[i];
+    return dst;
+}
+
+void *memset(void *dst, int val, waks_usize n)
+{
+    waks_uchar *d = (waks_uchar *)dst;
+    for (waks_usize i = 0; i < n; i++) d[i] = (waks_uchar)val;
+    return dst;
+}
 
 ///
 /// ARENA IMPLEMENTATION
@@ -747,7 +762,7 @@ void *arena_alloc_w(void *context, waks_ssize size, waks_ssize alignment)
 {
 	waks_arena *arena = (waks_arena*)context;
     (void)alignment;
-    return ArenaPush(arena,(waks_u64)size);
+    return waks_arena_push(arena,(waks_u64)size);
 }
 
 void arena_free_w(void *context, void *ptr) 
@@ -770,7 +785,7 @@ waks_handle waks_box_alloc(waks_arena *arena, waks_u32 size, waks_u32 owner)
 {
     waks_u32 total_size = WAKS_ALIGN_16(sizeof(waks_box_header) + size);
     waks_uchar *raw_ptr = (waks_uchar *)waks_arena_push(arena, total_size);
-    if (!raw_ptr) return (waks_handle){0, 0};
+    if (!raw_ptr) return (waks_handle){0, 0, 0, 0};
 
     waks_box_header *handle = (waks_box_header *)raw_ptr;
     handle->size  = size;
@@ -786,7 +801,7 @@ waks_handle waks_box_alloc(waks_arena *arena, waks_u32 size, waks_u32 owner)
     handle->borrows  = 0;
 #endif
 
-    return (waks_handle){.offset = (waks_u64)(raw_ptr - arena->memory), .version = 1};
+    return (waks_handle){.offset = (waks_u64)(raw_ptr - (waks_uchar *)arena->memory), .version = 1};
 }
 
 void *waks_handle_borrow(waks_arena *arena, waks_handle handle, waks_u32 caller)
@@ -857,7 +872,7 @@ waks_handle waks_handle_move(waks_arena *arena, waks_handle handle, waks_u32 old
 #else
     if (header->owner_id != old_owner || header->version != handle.version ||
         header->borrows != 0) {
-        return (waks_handle){0, 0};
+        return (waks_handle){0, 0, 0, 0};
     }
 
     header->version++;
@@ -912,7 +927,7 @@ void waks_handle_defer(waks_arena *arena, waks_handle handle)
 void _auto_release_handle(waks_handle *handle)
 {
     if (!current_arena) {
-        waks_dbg_print("KERNEL PANIC: ScopeHandle used without active Arena!\n");
+        waks_dbg_print(WAKS_2CSTR_CAST("KERNEL PANIC: ScopeHandle used without active Arena!\n"));
         return;
     }
     if (handle && handle->version > 0)
@@ -925,7 +940,9 @@ void _raii_release_now(void *pointer)
     void **pointer_to_ptr = (void **)pointer;
     if (*pointer_to_ptr && current_arena) {
         waks_box_header *header = ((waks_box_header *)*pointer_to_ptr) - 1;
-        waks_handle handle = {.offset = (waks_uchar *)header - current_arena->memory,
+		// @TODO(waks-work): check all the casting of arena->memory to waks_uchar 
+		// research for a better and safe solution for this
+        waks_handle handle = {.offset = (waks_uchar *)header - (waks_uchar *)current_arena->memory,
                          .version = header->version};
         waks_handle_release(current_arena, handle);
     }
@@ -936,7 +953,7 @@ void _raii_release_deferred(void *pointer)
     void **pointer_to_ptr = (void **)pointer;
     if (*pointer_to_ptr && current_arena) {
         waks_box_header *header = ((waks_box_header *)*pointer_to_ptr) - 1;
-        waks_handle handle = {.offset = (waks_uchar *)header - current_arena->memory,
+        waks_handle handle = {.offset = (waks_uchar *)header - (waks_uchar *)current_arena->memory,
                          .version = header->version};
         waks_handle_defer(current_arena, handle);
     }
@@ -966,44 +983,65 @@ void waks_panic(WaksResult error)
     waks_load_state();
 }
 
-void waks_dbg_print(const waks_uchar *str)
+void waks_dbg_print(const waks_char *str)
 {
 #if defined(__linux__)
-    const char *pointer = str;
-    while (*pointer) pointer++;
- 
-    // @TODO: we can look at using waks_uchar * instead of const char *
-    waks_syscall6(SYS_write, 2, (long)str, (long)(pointer - (const char *)str), 0, 0, 0);
+    if (!str) return;
+
+    // 1. Plain char pointer to avoid pointer-sign warnings (-Wpointer-sign)
+    const waks_char *ptr = str;
+    while (*ptr) ptr++;
+    long len = (long)(ptr - str);
+
+    // 2. Protect against short writes / interruptions
+    long written = 0;
+    while (written < len) {
+        long res = waks_syscall6(SYS_write, 2, (long)(str + written), len - written, 0, 0, 0);
+        if (res <= 0) break;
+        written += res;
+    }
+#else
+    (void)str;
 #endif
 }
 
 void waks_dbg_print_int(waks_i16 n)
 {
-    waks_uchar buf[16];
-    waks_i64 i = 0;
-    if (n == 0) {
+    char buf[16];
+    int i = 0;
+
+    // Use your unsigned waks_u16 to safely represent 32768 (INT16_MIN)
+    waks_u16 u;
+
+    if (n < 0) {
+        buf[i++] = '-';
+        // -32768 negated in unsigned context fits safely in 16-bit uint (max 65535)
+        u = (waks_u16)(-(waks_i32)n);
+    } else {
+        u = (waks_u16)n;
+    }
+
+    int start_digit_idx = i;
+    if (u == 0) {
         buf[i++] = '0';
     } else {
-        if (n < 0) {
-            buf[i++] = '-';
-            n = -n;
-        }
-        while (n > 0) {
-            buf[i++] = (n % 10) + '0';
-            n /= 10;
+        while (u > 0) {
+            buf[i++] = (char)((u % 10) + '0');
+            u /= 10;
         }
     }
     buf[i] = '\0';
-    // Simple reverse for display
-    for (int j = 0; j < i / 2; j++) {
-        char t = buf[j];
-        buf[j] = buf[i - 1 - j];
-        buf[i - 1 - j] = t;
-    }
-    waks_dbg_print(buf);
-    waks_dbg_print("\n");
-}
 
+    // Reverse only the digits (preserving leading '-')
+    for (int l = start_digit_idx, r = i - 1; l < r; l++, r--) {
+        char t = buf[l];
+        buf[l] = buf[r];
+        buf[r] = t;
+    }
+
+    waks_dbg_print(WAKS_2CSTR_CAST(buf));
+    waks_dbg_print(WAKS_2CSTR_CAST("\n"));
+}
 
 #endif // WAKS_ALLOCATOR_IMPLEMENTATION
 
