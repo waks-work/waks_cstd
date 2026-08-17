@@ -249,6 +249,39 @@ void test_handle_safety() {
     waks_arena_release(arena);
 }
 
+void hash_map_test(void) 
+{
+	waks_arena *arena = waks_arena_alloc(GB(0.5));
+	if (!arena) return;
+
+	TEST("@TODO: provide a name for this test") {
+        waks_hash_map map;
+
+	    // initialise the hashmap.
+        waks_hm_init_arena(arena, &map, 16);
+
+	    //   we can implement cast macros
+        waks_hm_insert(&map, WAKS_2CSTR_CAST("apple"),  WAKS_TO_PTR(3));
+        waks_hm_insert(&map, WAKS_2CSTR_CAST("banana"), WAKS_TO_PTR(5));
+        waks_hm_insert(&map, WAKS_2CSTR_CAST("orange"), WAKS_TO_PTR(7));
+        waks_hm_insert(&map, WAKS_2CSTR_CAST("banana"), WAKS_TO_PTR(10));
+
+        if (waks_hm_contains(&map, WAKS_2CSTR_CAST("banana"))){
+            waks_u32 value = WAKS_HM_GET_INT(waks_u32, &map, WAKS_2CSTR_CAST("banana"));
+	    	waks_io_print_fmt("banana = %d\n", value);
+	    }
+
+        waks_hm_remove(&map, WAKS_2CSTR_CAST("apple"));
+
+        if (!waks_hm_contains(&map, WAKS_2CSTR_CAST("apple"))){
+	    	waks_io_print_fmt("apple not found\n");
+	    }
+
+        waks_hm_free(&map);
+	}
+	waks_arena_release(arena);
+}
+
 // Since we are -nostdlib, we define our entry point
 #if defined(__linux__)
 void _start() {
@@ -257,6 +290,7 @@ void _start() {
     test_handle_safety();
     linked_list_test();
     run_error_handling_suite();
+	hash_map_test();
 
     TEST_REPORT();
 

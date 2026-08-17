@@ -137,6 +137,51 @@ void  *waks_array_list_get_raw(waks_arena *arena, waks_array_list *vector, waks_
 // returning the element.
 void   waks_array_list_pop_raw(waks_arena *arena, waks_array_list *vector);
 
+
+/// 
+// HASHMAP API 
+// 
+
+typedef struct waks_hm_bucket waks_hm_bucket;
+typedef struct waks_hash_map waks_hash_map;
+
+struct waks_hm_bucket 
+{
+	waks_char      *key;
+	void           *value;
+	waks_hm_bucket *next;
+};
+
+struct waks_hash_map 
+{
+    waks_hm_bucket **buckets;
+	waks_ssize       capacity;
+    waks_ssize       size;
+	waks_arena      *arena;
+	waks_bool        use_heap;
+};
+
+#define WAKS_hm_loadfactor(m, h) (h) % (m)->capacity
+#define WAKS_TO_PTR(val)   ((void*)(waks_uintptr)(val))
+#define WAKS_FROM_PTR(T, p) ((T)(waks_uintptr)(p))
+
+// convenience wrapper for storing primitive integers:
+#define WAKS_HM_SET_INT(m, key, i) waks_hm_insert((m), (key), WAKS_TO_PTR(i))
+#define WAKS_HM_GET_INT(T, m, key) WAKS_FROM_PTR(T, waks_hm_get((m), (key)))
+
+// this is the hash function implementation from the k33 algorithm 
+// from dan bernstein(djb2).
+waks_u64   waks_hstr_function(const waks_char *str);
+void       waks_hm_init_malloc(waks_hash_map *m, waks_ssize capacity);
+void       waks_hm_init_arena(waks_arena *arena, waks_hash_map *m, waks_ssize capacity);
+void       waks_hm_insert(waks_hash_map *m, const waks_char *key, void *value);
+void       waks_hm_resize(waks_hash_map *m, waks_ssize capacity);
+void      *waks_hm_get(waks_hash_map *m, const waks_char *key);
+waks_bool  waks_hm_contains(waks_hash_map *m, const waks_char *key);
+void       waks_hm_remove(waks_hash_map *m, const waks_char *key);
+void       waks_hm_free(waks_hash_map *m);
+
+
 #ifdef __cplusplus 
 }
 #endif
@@ -405,5 +450,221 @@ void waks_array_list_ensure_capacity(waks_arena *arena, waks_array_list *vector,
     vector->data = new_handle;
 }
 
+/// 
+// WAKS_HASHMAP IMPLEMENTATION 
+// 
+
+waks_u64 waks_hstr_function(const waks_char *str)
+{
+    waks_u64 hash = 5381;
+    waks_u32 c;
+
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + (waks_u64)c; // hash * 33 + c
+
+    return hash;
+}
+
+
+void waks_hm_init_malloc(waks_hash_map *m, waks_ssize capacity) 
+{
+	// guarantees inlining without calling external functions.
+    __builtin_memset_inline(m, 0, sizeof * m);	
+	m->capacity = capacity;
+	m->use_heap = waks_true;
+#if defined(WAKS_USE_STD_LIB)
+	m->buckets = malloc(sizeof(waks_hm_bucket*) * m->capacity);
+    if (m->buckets) __builtin_memset(m->buckets, 0, sizeof(waks_hm_bucket*) * m->capacity);
+#else 
+	m->buckets = WAKS_NOVALUE;
+#endif
+	if(!m->buckets) return;
+}
+
+void waks_hm_init_arena(waks_arena *arena,waks_hash_map *m, waks_ssize capacity)
+{
+	__builtin_memset_inline(m, 0, sizeof * m);	
+	m->capacity = capacity;
+	m->use_heap = waks_false;
+	m->arena    = arena;
+    m->buckets  = waks_arena_push(arena, sizeof(waks_hm_bucket*) * m->capacity); 
+    if (m->buckets) __builtin_memset(m->buckets, 0, sizeof(waks_hm_bucket*) * m->capacity);
+	if (!m->buckets) return;
+}
+
+void waks_hm_resize(waks_hash_map *m, waks_ssize new_cap) 
+{
+    waks_hm_bucket **old_buckets  = m->buckets;
+    waks_ssize       old_capacity = m->capacity;
+
+    // allocate new_buckets array
+    waks_hm_bucket **new_buckets;
+    if (m->use_heap) {
+#if defined(WAKS_USE_STD_LIB)
+        new_buckets = calloc(new_cap, sizeof(waks_hm_bucket*));
+#else 
+		new_buckets = WAKS_NOVALUE;
+#endif
+    } else {
+        new_buckets = waks_arena_push(m->arena, sizeof(waks_hm_bucket*) * new_cap);
+        if (new_buckets) __builtin_memset(new_buckets, 0, sizeof(waks_hm_bucket*) * new_cap);
+    }
+
+	// keep old table if new_bucket allocation fails
+    if (!new_buckets) return; 
+
+    // rehash: walk every old chain, prepend each node to its new bucket
+    for (waks_ssize i = 0; i < old_capacity; i++) {
+        waks_hm_bucket *curr = old_buckets[i];
+        while (curr) {
+            waks_hm_bucket *next = curr->next;
+
+            waks_u64   hash = waks_hstr_function(curr->key);
+            waks_ssize index = (waks_ssize)(hash % new_cap);
+
+            curr->next = new_buckets[index]; // Prepend to new chain
+            new_buckets[index] = curr;
+
+            curr = next;
+        }
+    }
+
+    // free old buckets array (heap only; arena reclaims on release)
+    if (m->use_heap) {
+#if defined(WAKS_USE_STD_LIB)
+        free(old_buckets);
+#endif
+    }
+
+    m->buckets  = new_buckets;
+    m->capacity = new_cap;
+}
+
+void waks_hm_insert(waks_hash_map *m, const waks_char *key, void *value)
+{
+    waks_u64 hash        = waks_hstr_function(key);
+	waks_ssize index     = WAKS_hm_loadfactor(m, hash);
+    waks_hm_bucket *curr = m->buckets[index];
+
+    while (curr) {
+        if (waks_str_cstr_eq_cstr(curr->key, key)) {
+            curr->value = value;
+            return;
+        }
+        curr = curr->next;
+    }
+    waks_hm_bucket *b;
+    waks_char *key_copy = WAKS_NOVALUE;
+    waks_ssize key_len  = waks_str_cstr_len(key);
+	// allocate memory if the current bucket is already filled
+	if (m->use_heap) {
+#if defined(WAKS_USE_STD_LIB)
+        b = (waks_hm_bucket*)malloc(sizeof(waks_hm_bucket));
+        key_copy = (waks_char*)malloc(key_len + 1);
+        if (key_copy) __builtin_memcpy(key_copy, key, key_len + 1);
+#endif
+    } else {
+        b = (waks_hm_bucket*)waks_arena_push(m->arena, sizeof(waks_hm_bucket));
+        key_copy = (waks_char*)waks_arena_push(m->arena, key_len + 1);
+        if (key_copy) __builtin_memcpy(key_copy, key, key_len + 1);
+    }    
+
+    if (!b || !key_copy) return;
+
+    b->key   = key_copy;
+    b->value = value;
+    b->next  = m->buckets[index];
+
+    m->buckets[index] = b;
+    m->size++;
+
+    // Trigger double-capacity expansion at 75% load factor
+    if (m->size > (waks_ssize)(m->capacity * 0.75)) waks_hm_resize(m, m->capacity * 2); 
+}
+
+void *waks_hm_get(waks_hash_map *m, const waks_char *key)
+{
+    waks_u64 hash        = waks_hstr_function(key);
+    waks_ssize index     = WAKS_hm_loadfactor(m, hash);
+    waks_hm_bucket *curr = m->buckets[index];
+
+    while (curr) {
+        if (waks_str_cstr_eq_cstr(curr->key, key)) {
+            return curr->value;
+        }
+        curr = curr->next;
+    }
+    return WAKS_NOVALUE;
+}
+
+waks_bool waks_hm_contains(waks_hash_map *m, const waks_char *key)
+{
+    waks_u64 hash        = waks_hstr_function(key);
+    waks_ssize index     = WAKS_hm_loadfactor(m, hash);
+    waks_hm_bucket *curr = m->buckets[index];
+
+    while (curr) {
+        if (waks_str_cstr_eq_cstr(curr->key, key)) {
+            return waks_true; 
+        }
+        curr = curr->next;
+    }
+    
+    return waks_false; 
+}
+
+void waks_hm_remove(waks_hash_map *m, const waks_char *key)
+{
+    waks_u64 hash    = waks_hstr_function(key);
+    waks_ssize index = WAKS_hm_loadfactor(m,hash); 
+
+    waks_hm_bucket *curr = m->buckets[index];
+    waks_hm_bucket *prev = WAKS_NOVALUE;
+
+    while (curr) {
+        if (waks_str_cstr_eq_cstr(curr->key, key)) {
+            if (prev != WAKS_NOVALUE) prev->next = curr->next;
+            else m->buckets[index] = curr->next;
+
+			if (m->use_heap) {
+#if defined(WAKS_USE_STD_LIB)
+				free(curr->key);
+                free(curr);
+#endif
+			}
+            m->size--;
+            return;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+}
+
+void waks_hm_free(waks_hash_map *m)
+{
+	if (!m || !m->buckets) return;
+	if (m->use_heap) {
+        for (waks_ssize i = 0; i < m->capacity; i++) {
+            waks_hm_bucket *curr = m->buckets[i];
+            while (curr) {
+                waks_hm_bucket *next = curr->next;
+#if defined(WAKS_USE_STD_LIB)
+				free(curr->key);
+                free(curr);
+#endif
+                curr = next;
+            }
+        }
+#if defined(WAKS_USE_STD_LIB)
+        free(m->buckets);
+#endif
+	}
+    m->buckets  = WAKS_NOVALUE;
+    m->capacity = 0;
+    m->size     = 0;
+
+    m->arena = WAKS_NOVALUE;
+    m->use_heap = waks_false;   
+}
 
 #endif // WAKS_CONTAINER_IMPLEMENTATION

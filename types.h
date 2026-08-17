@@ -224,7 +224,7 @@ struct waks_string {
 
 // turns the raw c string provided to a string slice with the string and length
 // waks_string string_slice = waks_str_from_cstr("hello there guys");
-waks_string waks_str_from_cstr(const char *str);
+waks_string waks_str_from_cstr(const waks_char *str);
 
 // generates a substring from a string_slice from the string, start_pos, lenght of substring   
 waks_string waks_str_sub(waks_string s, waks_usize start, waks_usize length);
@@ -233,7 +233,13 @@ waks_string waks_str_sub(waks_string s, waks_usize start, waks_usize length);
 waks_bool   waks_str_eq(waks_string a, waks_string b);
 
 // checks the equality a string slice and a c string 
-waks_bool   waks_str_eq_cstr(waks_string a, const char *b);
+waks_bool   waks_str_eq_cstr(waks_string a, const waks_char *b);
+
+// gets the length of a cstr 
+waks_usize  waks_str_cstr_len(const waks_char *cstr);
+
+// checks the equality between the two cstr
+waks_bool   waks_str_cstr_eq_cstr(const waks_char *a, const waks_char *b);
 
 // checks for the prefix that the string starts with
 waks_bool   waks_str_starts_with(waks_string s, waks_string prefix);
@@ -356,7 +362,7 @@ const waks_char *waks_strerror(WaksResult error) {
 ///
 
 /** Create a waks_string from a null-terminated C string */
-waks_string waks_str_from_cstr(const char *str) {
+waks_string waks_str_from_cstr(const waks_char *str) {
     waks_usize len = 0;
     if (str) {
         while (str[len]) len++;
@@ -388,7 +394,7 @@ waks_bool waks_str_eq(waks_string a, waks_string b) {
 }
 
 /** Check equality between a waks_string and a null-terminated C string */
-waks_bool waks_str_eq_cstr(waks_string a, const char *b) {
+waks_bool waks_str_eq_cstr(waks_string a, const waks_char *b) {
     if (!b) return (a.length == 0);
     
     waks_usize i = 0;
@@ -398,6 +404,23 @@ waks_bool waks_str_eq_cstr(waks_string a, const char *b) {
         }
     }
     return (b[i] == '\0');
+}
+
+waks_usize  waks_str_cstr_len(const waks_char *cstr) {
+	waks_usize len = 0;
+	while (cstr[len] != '\0') len++;
+	return len;
+}
+
+waks_bool   waks_str_cstr_eq_cstr(const waks_char *a, const waks_char *b) {
+	waks_usize a_len = waks_str_cstr_len(a);
+	waks_usize b_len = waks_str_cstr_len(b);
+	if (a_len != b_len) return waks_false;
+
+	for (waks_usize i = 0;i < a_len; i++) {
+		if (a[i] != b[i]) return waks_false;
+	}
+	return waks_true;
 }
 
 /** Returns true if string starts with given prefix */
