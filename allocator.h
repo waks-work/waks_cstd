@@ -542,7 +542,7 @@ void      __stdcall ExitProcess(waks_u32 ExitCode);
 #endif // WINDOWS MEMORY DEFINITION
 
 // what it does if we use a stdlib instead of windows or linux specifics
-#if defined(USE_STD_LIB)
+#if defined(WAKS_USE_STD_LIB)
 	#include <stdlib.h>
 	#define OS_COMMIT(ptr, size) (1)
 	#define OS_DECOMMIT(ptr, size)
@@ -599,7 +599,7 @@ waks_arena *waks_arena_alloc(waks_u64 capacity)
         return WAKS_NOVALUE;
 
     waks_arena *arena = (waks_arena *)base;
-#elif defined(USE_STD_LIB)
+#elif defined(WAKS_USE_STD_LIB)
     waks_u64 total_size = capacity + sizeof(waks_arena);
     base = malloc(total_size);
     if (!base) return WAKS_NOVALUE;
@@ -643,7 +643,7 @@ void *waks_arena_push(waks_arena *arena, waks_u64 size)
         if (!VirtualAlloc(arena->memory + arena->commited, (waks_usize)commit_aligned, MEM_COMMIT,
                           PAGE_READWRITE))
             return WAKS_NOVALUE;
-#elif defined(USE_STD_LIB)
+#elif defined(WAKS_USE_STD_LIB)
         if (!OS_COMMIT(arena->memory + arena->commited, commit_aligned))
             return WAKS_NOVALUE;
 #endif
@@ -676,7 +676,7 @@ void waks_arena_set_pos_back(waks_arena *arena, waks_u64 position)
 #elif defined(_WIN32) || defined(_WIN64)
         VirtualFree(arena->memory + rounded_position, (waks_usize)(arena->commited - rounded_position),
                     MEM_DECOMMIT);
-#elif defined(USE_STD_LIB)
+#elif defined(WAKS_USE_STD_LIB)
         //  This in context does nothing as seen in macro
         //  TODO(waks-work); may be check if there is any need of having this block of Code
         waks_u64 size_to_free = arena->commited - rounded_position;
@@ -696,7 +696,7 @@ void waks_arena_release(waks_arena *arena)
         waks_syscall6(SYS_munmap, (long)arena->memory, arena->capacity, 0, 0, 0, 0);
 #elif defined(_WIN32) || defined(_WIN64)
         VirtualFree(arena->memory, 0, MEM_RELEASE);
-#elif defined(USE_STD_LIB)
+#elif defined(WAKS_USE_STD_LIB)
         free(arena);
 #endif
     }
@@ -747,7 +747,7 @@ void waks_arena_reset(waks_arena *arena)
                  MADV_DONTNEED, 0, 0, 0);
 #elif defined(_WIN32) || defined(_WIN64)
         VirtualFree(arena->memory + start_position, (waks_ssize)size_to_reclaim, 0x4000);
-#elif defined(USE_STD_LIB)
+#elif defined(WAKS_USE_STD_LIB)
         OS_DECOMMIT(arena->memory + arena->pagesize, size_to_reclaim);
         arena->commited = arena->pagesize;
 #endif

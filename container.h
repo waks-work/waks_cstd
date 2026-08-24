@@ -469,7 +469,7 @@ waks_u64 waks_hstr_function(const waks_char *str)
 void waks_hm_init_malloc(waks_hash_map *m, waks_ssize capacity) 
 {
 	// guarantees inlining without calling external functions.
-    __builtin_memset_inline(m, 0, sizeof * m);	
+    __builtin_memset(m, 0, sizeof * m);	
 	m->capacity = capacity;
 	m->use_heap = waks_true;
 #if defined(WAKS_USE_STD_LIB)
@@ -483,7 +483,7 @@ void waks_hm_init_malloc(waks_hash_map *m, waks_ssize capacity)
 
 void waks_hm_init_arena(waks_arena *arena,waks_hash_map *m, waks_ssize capacity)
 {
-	__builtin_memset_inline(m, 0, sizeof * m);	
+	__builtin_memset(m, 0, sizeof * m);	
 	m->capacity = capacity;
 	m->use_heap = waks_false;
 	m->arena    = arena;
