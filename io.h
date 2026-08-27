@@ -238,6 +238,8 @@ void waks_dbg_print_(waks_string str)
 {
 #if defined(__linux__)
     waks_syscall6(SYS_write, 2, (long)str.data, (long)str.length, 0, 0, 0);
+#elif defined(WAKS_TARGET_BAREMETAL)
+	waks_bm_write(2, str.data, str.length);
 #endif
 }
 
@@ -248,11 +250,10 @@ void waks_io_print(waks_string str)
     waks_syscall6(SYS_write, 1, (long)str.data, (long)str.length, 0, 0, 0);
 #elif defined(_WIN32) || defined(_WIN64)
     // Windows uses WriteFile or WriteConsole
+#elif defined(WAKS_TARGET_BAREMETAL)
+	waks_bm_write(1, str.data, str.length);
 #else
-    waks_u16 *vga_buffer = (waks_u16 *)0x8000;
-    static waks_i32 cursor_pos = 0;
-    for (waks_usize i = 0; i < str.length; i++)
-        vga_buffer[cursor_pos++] = (waks_u16)str.data[i] | (0x07 << 8);
+    #error "waks_io_print: no target defined"
 #endif
 }
 void waks_io_print_hex(waks_u64 value)

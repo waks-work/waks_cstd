@@ -548,12 +548,20 @@ void      __stdcall ExitProcess(waks_u32 ExitCode);
 	#define OS_DECOMMIT(ptr, size)
 #endif
 
+#if defined(WAKS_TARGET_BARE_METAL)
+     #include "arch.h"
+#endif
+
 void waks_os_panic(void)
 {
 #if defined(__linux)
     waks_syscall6(SYS_exit, 1, 0, 0, 0, 0, 0);
 #elif defined(_WIN32) || defined(_WIN64)
     ExitProcess(1);
+#elif defined(WAKS_TARGET_BARE_METAL)
+	waks_bm_exit();
+#else 
+    #error "waks_os_panic: no target defined (need __linux__, _WIN32/_WIN64, or WAKS_TARGET_BARE_METAL)"
 #endif
 }
 
@@ -607,6 +615,14 @@ waks_arena *waks_arena_alloc(waks_u64 capacity)
         free(base);
         return WAKS_NOVALUE;
     }
+    waks_arena *arena = (waks_arena *)base;
+#elif defined(WAKS_TARGET_BARE_METAL) 
+	waks_u64 total_size = capacity + sizeof(waks_arena);
+	base = (void *)waks_bm_syscall6(WAKS_SYS_ALLOC, total_size, 0, 0, 0, 0, 0);
+	if (!base || base == (void *)-1) return WAKS_NOVALUE;
+    waks_arena *arena = (waks_arena *)base;
+#else 
+    #error "waks_arena_alloc: no target defined"
 #endif
 
     arena->memory      = (void *)base;
@@ -646,6 +662,11 @@ void *waks_arena_push(waks_arena *arena, waks_u64 size)
 #elif defined(WAKS_USE_STD_LIB)
         if (!OS_COMMIT(arena->memory + arena->commited, commit_aligned))
             return WAKS_NOVALUE;
+#elif defined(WAKS_TARGET_BARE_METAL)
+        // Memory is already physically mapped on bare-metal; simply advance commitment boundary
+         (void)commit_aligned;
+#else 
+        #error "waks_arena_push: no target defined"
 #endif
         arena->commited += commit_aligned;
     }
@@ -682,7 +703,9 @@ void waks_arena_set_pos_back(waks_arena *arena, waks_u64 position)
         waks_u64 size_to_free = arena->commited - rounded_position;
         OS_DECOMMIT(arena->memory + rounded_position, size_to_free);
         arena->commited = rounded_position;
-
+#elif defined(WAKS_TARGET_BARE_METAL)
+        // No virtual decommit step on bare-metal; adjust the boundary tracker
+		arena->commited = rounded_position;
 #endif
     }
 
@@ -698,6 +721,9 @@ void waks_arena_release(waks_arena *arena)
         VirtualFree(arena->memory, 0, MEM_RELEASE);
 #elif defined(WAKS_USE_STD_LIB)
         free(arena);
+#elif defined(WAKS_TARGET_BARE_METAL) 
+         // Optional: Move system break backward via SYS_BREAK if this is the top allocation
+		 waks_bm_syscall6(WAKS_SYS_BREAK, (long)arena->memory, 0, 0, 0, 0, 0);
 #endif
     }
 }
@@ -750,6 +776,9 @@ void waks_arena_reset(waks_arena *arena)
 #elif defined(WAKS_USE_STD_LIB)
         OS_DECOMMIT(arena->memory + arena->pagesize, size_to_reclaim);
         arena->commited = arena->pagesize;
+#elif defined(WAKS_TARGET_BARE_METAL)
+		(void)size_to_reclaim;
+		arena->commited = arena->pagesize;
 #endif
     }
     arena->position = start_position;
@@ -985,23 +1014,26 @@ void waks_panic(WaksResult error)
 
 void waks_dbg_print(const waks_char *str)
 {
-#if defined(__linux__)
     if (!str) return;
 
-    // 1. Plain char pointer to avoid pointer-sign warnings (-Wpointer-sign)
+    // Plain char pointer to avoid pointer-sign warnings (-Wpointer-sign)
     const waks_char *ptr = str;
     while (*ptr) ptr++;
     long len = (long)(ptr - str);
 
-    // 2. Protect against short writes / interruptions
+#if defined(__linux__)
+    // Protect against short writes / interruptions
     long written = 0;
     while (written < len) {
         long res = waks_syscall6(SYS_write, 2, (long)(str + written), len - written, 0, 0, 0);
         if (res <= 0) break;
         written += res;
     }
-#else
-    (void)str;
+#elif defined(_WIN32 || _WIN64)
+	// @TODO(waks-work): route to stderr via windows API
+    (void)len;
+#elif defined(WAKS_TARGET_BARE_METAL)
+	waks_bm_write(2, str, len);
 #endif
 }
 
