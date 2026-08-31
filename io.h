@@ -136,6 +136,18 @@ void waks_any_print(Any value)
             }
         } break;
 
+		MatchF32(value, f) {
+			waks_char buf[32];
+            waks_f32_to_cstr(f, buf, sizeof(buf));
+            waks_io_print(waks_str_from_cstr(buf));
+		} break;
+
+		MatchF64(value, d) {
+            waks_char buf[32];
+            waks_f32_to_cstr(d, buf, sizeof(buf));
+            waks_io_print(waks_str_from_cstr(buf));
+		} break;
+
         MatchNone(value) {
             waks_io_print(WAKS_STR("none"));
         } break;

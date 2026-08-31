@@ -96,7 +96,9 @@ void waks_os_panic(void);
 
 // This macro is used to shift bits and is used in our arena_allocator function to 
 // allocate a gigabyte of memory space 
-#define GB(x) ((waks_u64)(x) << 30)
+#define WAKS_KB(x) ((waks_u64)((waks_f64)(x) * 1024.0))
+#define WAKS_MB(x) ((waks_u64)((waks_f64)(x) * 1024.0 * 1024.0))
+#define WAKS_GB(x) ((waks_u64)((waks_f64)(x) * 1024.0 * 1024.0 * 1024.0))
 
 // This macro allows for automatic cleanup of the memory borrowed once we get 
 // out of scope. This happens by calling the cleanup function  and rendering 
@@ -439,12 +441,7 @@ extern waks_arena *current_arena;
 // it at function call 
 // @TODO(waks-work): Go down and deeply explain the code  runs this 
 // two functions in the background and logic behind it
-WaksResult waks_pcall(waks_arena *arena, void (*fn)(void *), void *arg);
-void waks_panic(WaksResult err);
-
-__attribute__((aligned(16))) WaksContext global_panic_env;
-
-waks_arena *current_arena = WAKS_NOVALUE;
+waks_result waks_pcall(waks_arena *arena, void (*fn)(void *), void *arg);
 
 #ifdef __cplusplus 
 }
@@ -565,6 +562,8 @@ void waks_os_panic(void)
 #endif
 }
 
+waks_arena *current_arena = WAKS_NOVALUE;
+
 // memset and memcpy implementation 
 void *memcpy(void *dst, const void *src, waks_usize n)
 {
@@ -587,48 +586,58 @@ void *memset(void *dst, int val, waks_usize n)
 
 waks_arena *waks_arena_alloc(waks_u64 capacity)
 {
+	if (capacity == 0) return WAKS_NOVALUE;
     void *base = WAKS_NOVALUE;
+
+    waks_u64 header_offset  = WAKS_ALIGN_16(sizeof(waks_arena));
+	waks_u64 raw_total      = capacity + header_offset; 
+
+	waks_u64 total_capacity = WAKS_ALIGN_UP(raw_total, PAGESIZE);
+    waks_u64 initial_commit = WAKS_ALIGN_UP(header_offset, PAGESIZE);
+
 #if defined(__linux)
     // Ask the OS for a large chunk of the of the virtual memory but tells
     // the hardware not to allocate physical RAM yet
-    base = (void *)waks_syscall6(SYS_mmap, 0, capacity, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    if (base == MAP_FAILED || base == WAKS_NOVALUE) return WAKS_NOVALUE;
+    long sys_ret = waks_syscall6(SYS_mmap, 0, total_capacity,
+			PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	if (sys_ret < 0 || (void *)sys_ret == (void *)-1) return WAKS_NOVALUE;
 
-    waks_arena *arena = (waks_arena *)base;
+	base              = (void *)sys_ret;
+
     /* Changes access from NOACCESS to READ && WRITE */
-    // @TODO check the use of the types long... to ensure proper compatibility
-    waks_syscall6(SYS_mprotect, (long)base, PAGESIZE, PROT_READ | PROT_WRITE, 0, 0, 0);
+    long sys_prot = waks_syscall6(SYS_mprotect, (long)base, initial_commit, PROT_READ | PROT_WRITE, 0, 0, 0);
+	if (sys_prot < 0) {
+		waks_syscall6(SYS_munmap, (long)base, total_capacity, 0, 0, 0, 0);
+		return WAKS_NOVALUE;
+	}
 
 #elif defined(_WIN32) || defined(_WIN64)
-    base = VirtualAlloc(WAKS_NOVALUE, (waks_ssize)capacity, MEM_RESERVE, PAGE_NOACCESS);
+    base = VirtualAlloc(WAKS_NOVALUE, (waks_ssize)total_capacity, MEM_RESERVE, PAGE_NOACCESS);
     if (!base) return WAKS_NOVALUE;
 
-    if (!VirtualAlloc(base, PAGESIZE, MEM_COMMIT, PAGE_READWRITE))
+    if (!VirtualAlloc(base, PAGESIZE, MEM_COMMIT, PAGE_READWRITE)) {
+		VirtualFree(base, 0, MEM_RELEASE);
         return WAKS_NOVALUE;
+	}
 
-    waks_arena *arena = (waks_arena *)base;
 #elif defined(WAKS_USE_STD_LIB)
-    waks_u64 total_size = capacity + sizeof(waks_arena);
-    base = malloc(total_size);
+    base = malloc(total_capacity);
     if (!base) return WAKS_NOVALUE;
     if (!OS_COMMIT(base, PAGESIZE)) {
         free(base);
         return WAKS_NOVALUE;
     }
-    waks_arena *arena = (waks_arena *)base;
 #elif defined(WAKS_TARGET_BARE_METAL) 
-	waks_u64 total_size = capacity + sizeof(waks_arena);
-	base = (void *)waks_bm_syscall6(WAKS_SYS_ALLOC, total_size, 0, 0, 0, 0, 0);
+	base = (void *)waks_bm_syscall6(WAKS_SYS_ALLOC, total_capacity, 0, 0, 0, 0, 0);
 	if (!base || base == (void *)-1) return WAKS_NOVALUE;
-    waks_arena *arena = (waks_arena *)base;
 #else 
     #error "waks_arena_alloc: no target defined"
 #endif
-
+    waks_arena *arena = (waks_arena *)base;
     arena->memory      = (void *)base;
     arena->capacity    = capacity;
-    arena->position    = WAKS_ALIGN_16(sizeof(waks_arena)); // starts after the header
-    arena->commited    = PAGESIZE;
+    arena->position    = header_offset; // starts after the header
+    arena->commited    = initial_commit;
     arena->pagesize    = PAGESIZE;
     arena->defer_count = 0;
     return arena;
@@ -988,28 +997,16 @@ void _raii_release_deferred(void *pointer)
     }
 }
 
-
-WaksResult waks_pcall(waks_arena *arena, void (*unsafe_func)(void *), void *arg)
+static void waks_arena_cleanup_adapter(void *arena_ptr, waks_u64 checkpoint) 
 {
-    waks_u64 checkpoint = waks_arena_get_pos(arena);
-    global_panic_env.arena_checkpoint = checkpoint;
-
-    int status = waks_save_state();
-    if (status == 0) {
-        /// SUCCESS PATH:
-        unsafe_func(arg);
-        return WAKS_OK;
-    } else {
-        /// RECOVERY PATH:
-        waks_arena_set_pos_back(arena, global_panic_env.arena_checkpoint);
-        return (WaksResult)status;
-    }
+     waks_arena_set_pos_back((waks_arena *)arena_ptr, checkpoint);
 }
 
-void waks_panic(WaksResult error)
+waks_result waks_pcall(waks_arena *arena, void (*unsafe_func)(void *), void *arg)
 {
-    *((volatile int *)&global_panic_env.error_code) = (int)error;
-    waks_load_state();
+    waks_u64 checkpoint       = arena ? waks_arena_get_pos(arena)  : 0;
+	waks_cleanup_func cleanup = arena ? waks_arena_cleanup_adapter : WAKS_NOVALUE;
+	return waks_custom_pcall(unsafe_func, arg, checkpoint, cleanup, arena);
 }
 
 void waks_dbg_print(const waks_char *str)

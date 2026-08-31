@@ -1,5 +1,4 @@
 
-
 #ifndef WAKS_CONTAINER_H
 #define WAKS_CONTAINER_H
 
@@ -180,7 +179,6 @@ void      *waks_hm_get(waks_hash_map *m, const waks_char *key);
 waks_bool  waks_hm_contains(waks_hash_map *m, const waks_char *key);
 void       waks_hm_remove(waks_hash_map *m, const waks_char *key);
 void       waks_hm_free(waks_hash_map *m);
-
 
 #ifdef __cplusplus 
 }
@@ -553,7 +551,7 @@ void waks_hm_insert(waks_hash_map *m, const waks_char *key, void *value)
         }
         curr = curr->next;
     }
-    waks_hm_bucket *b;
+    waks_hm_bucket *b   = WAKS_NOVALUE;
     waks_char *key_copy = WAKS_NOVALUE;
     waks_ssize key_len  = waks_str_cstr_len(key);
 	// allocate memory if the current bucket is already filled

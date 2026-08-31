@@ -13,7 +13,7 @@
 #include "../io.h"
 
 void test_vector() {
-    waks_arena *arena = waks_arena_alloc((waks_u64)(GB((1))));
+    waks_arena *arena = waks_arena_alloc((waks_u64)(WAKS_GB((1))));
 
     TEST("Verifying that the vector initialisation, push and copy") {
         WAKS_TEMP_ARENA(arena) {
@@ -38,7 +38,7 @@ void test_vector() {
 }
 
 void linked_list_test() {
-    waks_arena *arena = waks_arena_alloc(GB(1));
+    waks_arena *arena = waks_arena_alloc(WAKS_GB(1));
     typedef struct {
         waks_u32       id;
         waks_char     *content;
@@ -104,7 +104,7 @@ void linked_list_test() {
 // }
 
 void run_error_handling_suite() {
-    waks_arena *arena = waks_arena_alloc(GB(1));
+    waks_arena *arena = waks_arena_alloc(WAKS_GB(1));
 
     // TEST("Waks error and panic test") {
     //     WaksResult res = parse_config_transaction(arena, "config.toml");
@@ -144,7 +144,7 @@ void run_error_handling_suite() {
 }
 
 void run_arena_suite() {
-    waks_arena *arena = waks_arena_alloc((waks_u64)GB(1));
+    waks_arena *arena = waks_arena_alloc((waks_u64)WAKS_GB(1));
     TEST_ASSERT(arena != WAKS_NOVALUE, "Allocation was not successful");
 
     TEST("Verifying 16-byte alignment of waks_box_alloc") {
@@ -215,7 +215,7 @@ void run_arena_suite() {
 }
 
 void test_handle_safety() {
-    waks_arena *arena = waks_arena_alloc((waks_u64)GB(1));
+    waks_arena *arena = waks_arena_alloc((waks_u64)WAKS_GB(1));
     waks_u32 user = 777;
 
     TEST("Version increment after Release 2") {
@@ -251,7 +251,7 @@ void test_handle_safety() {
 
 void hash_map_test(void) 
 {
-	waks_arena *arena = waks_arena_alloc(GB(0.5));
+	waks_arena *arena = waks_arena_alloc(WAKS_MB(1));
 	if (!arena) return;
 
 	TEST("@TODO: provide a name for this test") {
@@ -268,13 +268,13 @@ void hash_map_test(void)
 
         if (waks_hm_contains(&map, WAKS_2CSTR_CAST("banana"))){
             waks_u32 value = WAKS_HM_GET_INT(waks_u32, &map, WAKS_2CSTR_CAST("banana"));
-	    	waks_io_print_fmt("banana = %d\n", value);
+	    	waks_io_print_fmt(WAKS_2CSTR_CAST("banana = %d\n"), value);
 	    }
 
         waks_hm_remove(&map, WAKS_2CSTR_CAST("apple"));
 
         if (!waks_hm_contains(&map, WAKS_2CSTR_CAST("apple"))){
-	    	waks_io_print_fmt("apple not found\n");
+	    	waks_io_print_fmt(WAKS_2CSTR_CAST("apple not found\n"));
 	    }
 
         waks_hm_free(&map);

@@ -1,5 +1,5 @@
-#ifndef WAKS_TYPES_H
-#define WAKS_TYPES_H
+#ifndef WAKS_TYPE_H
+#define WAKS_TYPE_H
 
 
 #ifdef __cplusplus 
@@ -88,6 +88,7 @@ extern "C" {
     typedef unsigned long      waks_usize;
     typedef long               waks_ssize;
     typedef unsigned long      waks_uintptr;
+
 #endif
 
 /* Freestanding Boolean Logic */
@@ -107,6 +108,16 @@ extern "C" {
 
 #endif // WAKS_NO_STDHEADERS
 
+
+#if !defined(WAKS_NO_STDHEADERS)
+	typedef float  waks_f32;
+	typedef double waks_f64;
+#else 
+	typedef float  waks_f32;
+	typedef double waks_f64;
+
+#endif
+
 #define WAKS_2CSTR_CAST(waks_cstring) (waks_char *)(waks_cstring)
 #define WAKS_2UCSTR_CAST(waks_cstring) (waks_uchar *)(waks_cstring)
 
@@ -114,7 +125,7 @@ extern "C" {
 #define WAKS_COMPILER_PRAGMA(x) _Pragma(#x)
 
 #if defined(__clang__) || defined(__GNUC__)
-#	define WAKS_AUTO  _auto_type
+#	define WAKS_AUTO  __auto_type
 #else 
 #	error "WAKS_AUTO requires compiler support for __auto_type"
 #endif
@@ -122,15 +133,40 @@ extern "C" {
 WAKS_COMPILER_PRAGMA(GCC diagnostic error "-Wswitch")
 WAKS_COMPILER_PRAGMA(GCC diagnostic error "-Wimplicit-fallthrough")
 
-typedef enum WaksResult {
-#define X(code, string) code,
-#include "waks_error.inc"
-#undef X
-	WAKS_ERR_COUNT
-} WaksResult;
+// Centralized X-Macro definition replacing waks_error.inc
+#define WAKS_ERROR_LIST(X) \
+    X(WAKS_OK,                 "Operation successful") \
+    X(WAKS_ERR_GENERIC,         "An unknown error occurred") \
+    X(WAKS_ERR_NOMEM,           "Arena allocation failed: Out of memory") \
+    X(WAKS_ERR_BOUNDS,          "Pointer out of bounds during iteration") \
+    X(WAKS_ERR_ALIGN,           "Memory alignment violation") \
+    X(WAKS_ERR_NULL,            "Null pointer dereference prevented") \
+    X(WAKS_ERR_OVERFLOW,        "Integer or buffer overflow detected") \
+    X(WAKS_ERR_STALE_HANDLE,    "Handle version mismatch: stale reference") \
+    X(WAKS_ERR_BORROW_CONFLICT, "Borrow violation: resource busy") \
+    X(WAKS_ERR_OS_REJECTED,     "OS-level memory request failed") \
+    X(WAKS_ERR_NOT_FOUND,       "Requested item does not exist") \
+    X(WAKS_ERR_INVALID_STATE,   "Logic error: system in wrong state for operation") \
+    X(WAKS_ERR_HANDLE_CORRUPT,  "Invalid handle magic or offset") \
+    X(WAKS_ERR_UNAUTHORIZED,    "Owner ID mismatch: unauthorized memory access") \
+    X(WAKS_ERR_PAGE_FAULT,      "Hardware/Software page protection violation") \
+    X(WAKS_ERR_UNSUPPORTED,     "Feature not available in this environment") \
+    X(WAKS_ERR_EMPTY,           "Operation failed: Collection is empty") \
+    X(WAKS_ERR_FULL,            "Operation failed: Fixed-size buffer is full") \
+    X(WAKS_ERR_TIMEOUT,         "Synchronization primitive timed out") \
+    X(WAKS_ERR_DEADLOCK,        "Potential deadlock detected") \
+    X(WAKS_ERR_IO,              "IO failed: Incorrect or corrupt user input and output")
 
-typedef struct WaksContext WaksContext;
-struct WaksContext {
+// Enum expansion
+typedef enum waks_result {
+#define X(code, string) code,
+    WAKS_ERROR_LIST(X)
+#undef X
+    WAKS_ERR_COUNT
+} waks_result;
+
+typedef struct waks_context waks_context;
+struct waks_context {
 	waks_u64 sp;               // Offset 0
 	waks_u64 pc;               // Offset 8
 	waks_u64 rbx;              // Offset 16
@@ -143,27 +179,40 @@ struct WaksContext {
 	waks_i32 error_code;       // Offset 72
 };
 
-// we it is implemented in the assembly fie
-// think of extern before
-WaksContext global_panic_env;
+// Global context definition
+extern waks_context global_panic_env;
 
-#if defined(__GNUC__) || defined (__clang__)
-	__attribute__((returns_twice)) extern waks_i64 waks_save_state(void);
-#else 
-	extern waks_i64 waks_save_state(void);
-#endif 
+// Function prototype annotations for the compiler
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((returns_twice)) waks_i32 waks_save_state(void);
+#else
+waks_i32 waks_save_state(void);
+#endif
 
-// @TODO(waks-work): extern before to be thought
 void waks_load_state(void);
+
+typedef void (*waks_cleanup_func)(void *user_data, waks_u64 checkpoint);
+
+waks_result waks_custom_pcall(
+		void (*unsafe_func)(void*),   // the function we are trying to call whichis unsafe 
+		void *arg,                    // the arguements of the function called
+		waks_u64 checkpoint,          // location of the memory pointer 
+		waks_cleanup_func cleanup_fn, 
+		void *cleanup_arg); 
+
+void waks_panic(waks_result error);
+
 
 enum any_tag {
 	_tag_none = 0,
 	_tag_i64,
 	_tag_u64,
+	_tag_f32,
+	_tag_f64,
 	_tag_char,
 	_tag_bool,
 	_tag_waks_err,
-	_tag_ptr  = 0x7
+	_tag_ptr,
 };
 
 // supports a 16 byte any_type
@@ -172,12 +221,14 @@ struct Any {
     waks_u32 tag;     // 4 bytes
     waks_u32 _pad;    // 4 bytes padding
     union {
-        waks_i64    i64;
-        waks_u64    u64;
-        waks_uchar  character;
-        waks_bool   boolean;
-        void       *ptr;
-        WaksResult  waks_err;
+        waks_i64     i64;
+        waks_u64     u64;
+		waks_f32     f32;
+		waks_f64     f64;
+        waks_uchar   character;
+        waks_bool    boolean;
+        void        *ptr;
+        waks_result  waks_err;
     } payload;       // 8 bytes
 };
 
@@ -195,6 +246,14 @@ struct Any {
     case _tag_u64:;                                                         \
         waks_u64 name = (v).payload.u64;
 
+#define MatchF32(v, name) \
+    case _tag_f32:;       \
+	    waks_f32 name = (v).payload.f32;
+
+#define MatchF64(v, name) \
+    case _tag_f64:;       \
+	    waks_f64 name = (v).payload.f64;
+
 #define MatchChar(v, name)                                                  \
     case _tag_char:;                                                        \
         waks_uchar name = (v).payload.character;
@@ -207,7 +266,7 @@ struct Any {
 
 #define MatchWaks(v, name)                                                  \
     case _tag_waks_err:;                                                    \
-        WaksResult name = (v).payload.waks_err;
+        waks_result name = (v).payload.waks_err;
 
 #define MatchPtr(v, name)                                                   \
     case _tag_ptr:;                                                         \
@@ -225,6 +284,9 @@ struct waks_string {
 // turns the raw c string provided to a string slice with the string and length
 // waks_string string_slice = waks_str_from_cstr("hello there guys");
 waks_string waks_str_from_cstr(const waks_char *str);
+
+waks_usize waks_f32_to_cstr(waks_f32 f, waks_char *buf, waks_ssize size);
+waks_usize waks_f64_to_cstr(waks_f64 d, waks_char *buf, waks_ssize size);
 
 // generates a substring from a string_slice from the string, start_pos, lenght of substring   
 waks_string waks_str_sub(waks_string s, waks_usize start, waks_usize length);
@@ -258,26 +320,101 @@ waks_string waks_str_trim(waks_string s);
 
 
 // Helpers
-// Any AnyStr(waks_string str);
 Any AnyInt( waks_i64 value);
 Any AnyUint(waks_u64 value);
+Any AnyF32(waks_f32  value);
+Any AnyF64(waks_f64  value);
 Any AnyChar(waks_uchar value);
 Any AnyBool(waks_bool strict);
-Any AnyWaks(WaksResult result);
+Any AnyWaks(waks_result result);
 Any AnyNone(void);
 Any AnyPtr(void *ptr);
 
 waks_string      waks_from_cstr(const waks_char *str);
-const waks_char *waks_strerror(WaksResult error);
+const waks_char *waks_strerror(waks_result error);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // !WAKS_TYPES_H
+#endif // !WAKS_TYPE_H
 
 #ifdef WAKS_TYPE_IMPLEMENTATION 
 #undef WAKS_TYPE_IMPLEMENTATION
+
+waks_context global_panic_env;
+
+__attribute__((naked)) waks_i32 waks_save_state(void) {
+    __asm__ volatile (
+        // Fetch Return Address (PC) from top of stack
+        "movq (%rsp), %rax\n\t"
+        "leaq global_panic_env(%rip), %rdx\n\t"
+        "movq %rax, 8(%rdx)\n\t"
+
+        // Save Stack Pointer (SP) adjusted for the call frame
+        "leaq 8(%rsp), %rax\n\t"
+        "movq %rax, 0(%rdx)\n\t"
+
+        // Save Callee-Saved Registers
+        "movq %rbx, 16(%rdx)\n\t"
+        "movq %rbp, 24(%rdx)\n\t"
+        "movq %r12, 32(%rdx)\n\t"
+        "movq %r13, 40(%rdx)\n\t"
+        "movq %r14, 48(%rdx)\n\t"
+        "movq %r15, 56(%rdx)\n\t"
+
+        // Return 0 on initial save
+        "xorq %rax, %rax\n\t"
+        "ret\n\t"
+    );
+}
+
+__attribute__((naked, noreturn)) void waks_load_state(void) {
+    __asm__ volatile (
+        "leaq global_panic_env(%rip), %rdx\n\t"
+
+        // Restore Stack Pointer & Frame Pointer
+        "movq 0(%rdx), %rsp\n\t"
+        "movq 24(%rdx), %rbp\n\t"
+
+        // Restore Callee-Saved Registers
+        "movq 16(%rdx), %rbx\n\t"
+        "movq 32(%rdx), %r12\n\t"
+        "movq 40(%rdx), %r13\n\t"
+        "movq 48(%rdx), %r14\n\t"
+        "movq 56(%rdx), %r15\n\t"
+
+        // Return error_code (Offset 72) in EAX/RAX
+        "movl 72(%rdx), %eax\n\t"
+
+        // Jump back to saved PC (Offset 8)
+        "jmp *8(%rdx)\n\t"
+    );
+}
+
+waks_result waks_custom_pcall(void (*unsafe_func)(void*), void *arg, waks_u64 checkpoint,
+		waks_cleanup_func cleanup_fn, void *cleanup_arg)
+{
+	global_panic_env.arena_checkpoint = checkpoint;
+	waks_i32 status = waks_save_state();
+
+	if (status == 0) {
+         unsafe_func(arg);
+		 return WAKS_OK;
+	} else {
+		// run a generic cleanup if function is passed
+		if (cleanup_fn != ((void*)0)) {
+			cleanup_fn(cleanup_arg, global_panic_env.arena_checkpoint);
+		}
+        return (waks_result)status;
+	}
+}
+
+void waks_panic(waks_result error)
+{
+    *((volatile int *)&global_panic_env.error_code) = (int)error;
+    waks_load_state();
+}
 
 /// Vector v = vector_init(arena, 10, sizeof(Any), user_id);
 /// vector_push(&v, AnyInt(42));
@@ -298,6 +435,23 @@ Any AnyInt(waks_i64 value) {
     a.payload.i64 = value;
     return a;
 }
+
+Any AnyF32(waks_f32 value) {
+    Any a;
+    a.tag = _tag_f32;
+    a._pad = 0;
+    a.payload.f32 = value;
+    return a;
+}
+
+Any AnyF64(waks_f64 value) {
+    Any a;
+    a.tag = _tag_f64;
+    a._pad = 0;
+    a.payload.f64 = value;
+    return a;
+}
+
 
 Any AnyChar(waks_uchar value) {
     Any a;
@@ -323,7 +477,7 @@ Any AnyNone(void) {
     return a;
 }
 
-Any AnyWaks(WaksResult result) {
+Any AnyWaks(waks_result result) {
     Any a;
     a.tag = _tag_waks_err;
     a._pad = 0;
@@ -347,10 +501,10 @@ waks_string waks_from_cstr(const waks_char *str) {
     return (waks_string){(waks_uchar *)str, len};
 }
 
-const waks_char *waks_strerror(WaksResult error) {
+const waks_char *waks_strerror(waks_result error) {
     switch (error) {
 #define X(code, string) case code: return WAKS_2CSTR_CAST(string);
-    #include "waks_error.inc"
+		WAKS_ERROR_LIST(X)
 #undef X
     default:
         return WAKS_2CSTR_CAST("UNKNOWN WAKS_STRING");
@@ -369,6 +523,95 @@ waks_string waks_str_from_cstr(const waks_char *str) {
     }
     return (waks_string){(waks_uchar *)str, len};
 }
+
+static waks_usize waks_internal_write_u64_rev(waks_u64 val, waks_char *buf) 
+{
+	waks_usize len = 0;
+	if (val == 0) {
+        buf[len++] = '0';
+		return len;
+	}
+	while (val > 0) {
+		buf[len++] = (waks_char)('0' + (val % 10));
+		val /= 10;
+	}
+	return len;
+}
+
+// Helper function to handle raw integer to string writing in reverse
+waks_usize waks_f32_to_cstr(waks_f32 f, waks_char *buf, waks_ssize size) 
+{
+    return waks_f64_to_cstr((waks_f64)f, buf, size);
+}
+
+waks_usize waks_f64_to_cstr(waks_f64 d, waks_char *buf, waks_ssize size) 
+{
+    if (!buf || size <= 0) return 0;
+	if (size == 1) {
+		buf[0] = '\0';
+		return 0;
+	}
+
+    // bitwise inspection for IEEE-754 special values (NaN / Inf)
+	union { 
+		waks_f64 f; 
+		waks_u64 u;
+	} bits; 
+	bits.f = d;
+
+	waks_u64 sign     = (bits.u >> 63) & 1 ;
+	waks_u64 exponent = (bits.u >> 52) & 0x7FF;
+	waks_u64 mantissa = bits.u & 0x000FFFFFFFFFFFFFULL;
+
+    // Handle NaN / Infinity
+    if (exponent == 0x7FF) {
+		// check or convert to waks_cstr
+        const char *str = (mantissa != 0) ? "NaN" : (sign ? "-Inf" : "Inf");
+        waks_usize i = 0;
+        while (str[i] != '\0' && (waks_ssize)i < size - 1) {
+            buf[i] = str[i];
+            i++;
+        }
+        buf[i] = '\0';
+        return i;
+    }
+
+    waks_usize idx = 0;
+
+    // Handle Sign
+    if (sign) {
+        buf[idx++] = '-';
+        d          = -d;
+    }
+
+    // Extract Integer and Fractional Parts
+    waks_u64 int_part  = (waks_u64)d;
+    waks_f64 frac_part = d - (waks_f64)int_part;
+
+    // Format Integer Part (write reversed, then flip)
+    waks_char rev_int[24];
+    waks_usize int_len = waks_internal_write_u64_rev(int_part, rev_int);
+    
+    for (waks_ssize i = (waks_ssize)int_len - 1; i >= 0; i--) {
+        if ((waks_ssize)idx < size - 1) buf[idx++] = rev_int[i];
+    }
+
+    // Format Decimal Point
+    if ((waks_ssize)idx < size - 1) buf[idx++] = '.';
+
+    // Format Fractional Part (Fixed to 6 decimal places)
+    waks_usize precision = 6;
+    for (waks_usize p = 0; p < precision; p++) {
+        frac_part     *= 10.0;
+        waks_u32 digit = (waks_u32)frac_part;
+        if ((waks_ssize)idx < size - 1) buf[idx++] = (char)('0' + digit);
+        frac_part -= digit;
+    }
+
+    buf[idx] = '\0';
+    return idx;
+}
+
 
 /** Create a sub-slice (substring). Bounds-checked to prevent buffer overruns */
 waks_string waks_str_sub(waks_string s, waks_usize start, waks_usize length) {
