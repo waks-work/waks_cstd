@@ -250,7 +250,7 @@ void waks_dbg_print_(waks_string str)
 {
 #if defined(__linux__)
     waks_syscall6(SYS_write, 2, (long)str.data, (long)str.length, 0, 0, 0);
-#elif defined(WAKS_TARGET_BAREMETAL)
+#elif defined(WAKS_TARGET_BARE_METAL)
 	waks_bm_write(2, str.data, str.length);
 #endif
 }
@@ -262,7 +262,7 @@ void waks_io_print(waks_string str)
     waks_syscall6(SYS_write, 1, (long)str.data, (long)str.length, 0, 0, 0);
 #elif defined(_WIN32) || defined(_WIN64)
     // Windows uses WriteFile or WriteConsole
-#elif defined(WAKS_TARGET_BAREMETAL)
+#elif defined(WAKS_TARGET_BARE_METAL)
 	waks_bm_write(1, str.data, str.length);
 #else
     #error "waks_io_print: no target defined"

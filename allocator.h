@@ -27,7 +27,7 @@ extern "C" {
 
 
 // LINUX/MAC SYSCALL NUMBER MACRO DEFINITION
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) && !defined(WAKS_TARGET_BARE_METAL)
     // syscall numbers for different architectures
  	#if defined(__x86_64)
  		#define SYS_mmap     9    // reserves/maps vritual memory pages.
@@ -245,6 +245,9 @@ void waks_os_panic(void);
 
 
 /// ARENA STRUCTS
+
+void *waks_memcpy(void *dst, const void *src, waks_usize n);
+void *waks_memset(void *dst, int val, waks_usize n);
 
 typedef enum {
     WAKS_ARENA_FLAG_NONE       = 0,
@@ -471,8 +474,8 @@ waks_result waks_pcall(waks_arena *arena, void (*fn)(void *), void *arg);
 
 long waks_syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 {
+    long ret = 0;
 	#if defined(__x86_64)
-    long ret;
     register long r10 __asm__("r10") = a4;
     register long r8 __asm__("r8")   = a5;
     register long r9 __asm__("r9")   = a6;
@@ -567,7 +570,7 @@ waks_arena *current_arena = WAKS_NOVALUE;
 // memset and memcpy implementation 
 void *memcpy(void *dst, const void *src, waks_usize n)
 {
-    waks_uchar *d = (waks_uchar *)dst;
+    waks_uchar *d       = (waks_uchar *)dst;
     const waks_uchar *s = (const waks_uchar *)src;
     for (waks_usize i = 0; i < n; i++) d[i] = s[i];
     return dst;
@@ -579,6 +582,22 @@ void *memset(void *dst, int val, waks_usize n)
     for (waks_usize i = 0; i < n; i++) d[i] = (waks_uchar)val;
     return dst;
 }
+
+void *waks_memcpy(void *dst, const void *src, waks_usize n)
+{
+    waks_uchar *d       = (waks_uchar *)dst;
+    const waks_uchar *s = (const waks_uchar *)src;
+    for (waks_usize i = 0; i < n; i++) d[i] = s[i];
+    return dst;
+}
+
+void *waks_memset(void *dst, int val, waks_usize n)
+{
+    waks_uchar *d = (waks_uchar *)dst;
+    for (waks_usize i = 0; i < n; i++) d[i] = (waks_uchar)val;
+    return dst;
+}
+
 
 ///
 /// ARENA IMPLEMENTATION
@@ -1026,7 +1045,7 @@ void waks_dbg_print(const waks_char *str)
         if (res <= 0) break;
         written += res;
     }
-#elif defined(_WIN32 || _WIN64)
+#elif defined(_WIN32) || (_WIN64)
 	// @TODO(waks-work): route to stderr via windows API
     (void)len;
 #elif defined(WAKS_TARGET_BARE_METAL)

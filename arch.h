@@ -38,6 +38,12 @@ long  waks_bm_read(int flag, waks_char *buf, waks_ssize len);
 // returns the number of bytes successfully written
 long  waks_bm_write(int flag, const waks_char *buf, waks_ssize len);
 
+void       waks_bm_outb(waks_u16 port, waks_uchar value);
+waks_uchar waks_bm_inb(waks_u16 port);
+void       waks_bm_outw(waks_u16 port, waks_u16 value);
+waks_u16   waks_bm_inw(waks_u16 port);
+void       waks_bm_io_wait(void);
+
 ///////////////////////////////////////////////////////////////////////////
 // add this to your linker file
 // @NOTE(waks-work): your linkeer script must export the heap start symbol
@@ -83,13 +89,13 @@ long  waks_bm_syscall6(long n, long a1, long a2, long a3, long a4, long a5, long
 // happens through the in/out instructions instead.
 
 // writes out a single byte(8bits) from AL register to an io port.
-static inline void waks_outb(waks_u16 port, waks_uchar value)
+void waks_bm_outb(waks_u16 port, waks_uchar value)
 {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
 }
 
 // reads a single byte(8bits) from an io port into an AL register
-static inline waks_uchar waks_inb(waks_u16 port)
+waks_uchar waks_bm_inb(waks_u16 port)
 {
     waks_uchar ret;
     __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
@@ -97,58 +103,62 @@ static inline waks_uchar waks_inb(waks_u16 port)
 }
 
 // writes out a single word(16bits) from AL register to an io port.
-static inline void waks_outw(waks_u16 port, waks_u16 value)
+void waks_bm_outw(waks_u16 port, waks_u16 value)
 {
     __asm__ volatile ("outw %0, %1" : : "a"(value), "Nd"(port));
 }
 
-
 // reads a single word(16bits) from an io port into an AL register
-static inline waks_u16 waks_inw(waks_u16 port)
+waks_u16 waks_bm_inw(waks_u16 port)
 {
     waks_u16 ret;
     __asm__ volatile ("inw %1, %0" : "=a"(ret) : "Nd"(port));
     return ret;
 }
 
+void waks_bm_io_wait(void) 
+{
+	__asm__ volatile ("outb %%al, $0x80": : "a"(0));
+}
+
 #define WAKS_COM1 0x3F8
 
 void waks_serial_init(void)
 {
-    waks_outb(WAKS_COM1 + 1, 0x00); // disable interrupts
-    waks_outb(WAKS_COM1 + 3, 0x80); // enable DLAB (set baud rate divisor)
-    waks_outb(WAKS_COM1 + 0, 0x03); // divisor low byte (38400 baud)
-    waks_outb(WAKS_COM1 + 1, 0x00); // divisor high byte
-    waks_outb(WAKS_COM1 + 3, 0x03); // 8 bits, no parity, one stop bit
-    waks_outb(WAKS_COM1 + 2, 0xC7); // enable FIFO, clear, 14-byte threshold
-    waks_outb(WAKS_COM1 + 4, 0x0B); // IRQs enabled, RTS/DSR set
-    waks_outb(WAKS_COM1 + 4, 0x1E); // enable loopback mode
-    waks_outb(WAKS_COM1 + 0, 0xAE); // send a test byte
+    waks_bm_outb(WAKS_COM1 + 1, 0x00); // disable interrupts
+    waks_bm_outb(WAKS_COM1 + 3, 0x80); // enable DLAB (set baud rate divisor)
+    waks_bm_outb(WAKS_COM1 + 0, 0x03); // divisor low byte (38400 baud)
+    waks_bm_outb(WAKS_COM1 + 1, 0x00); // divisor high byte
+    waks_bm_outb(WAKS_COM1 + 3, 0x03); // 8 bits, no parity, one stop bit
+    waks_bm_outb(WAKS_COM1 + 2, 0xC7); // enable FIFO, clear, 14-byte threshold
+    waks_bm_outb(WAKS_COM1 + 4, 0x0B); // IRQs enabled, RTS/DSR set
+    waks_bm_outb(WAKS_COM1 + 4, 0x1E); // enable loopback mode
+    waks_bm_outb(WAKS_COM1 + 0, 0xAE); // send a test byte
 	
-    if (waks_inb(WAKS_COM1 + 0) != 0xAE) return; 
-	waks_outb(WAKS_COM1 + 4, 0x0F); // disable loopback, enable normal operation (IRQs, RTS/DSR/OUT2)
+    if (waks_bm_inb(WAKS_COM1 + 0) != 0xAE) return; 
+	waks_bm_outb(WAKS_COM1 + 4, 0x0F); // disable loopback, enable normal operation (IRQs, RTS/DSR/OUT2)
 }
 
 static inline waks_bool waks_serial_transmit_empty(void)
 {
-    return waks_inb(WAKS_COM1 + 5) & 0x20;
+    return waks_bm_inb(WAKS_COM1 + 5) & 0x20;
 }
 
 static inline waks_bool waks_serial_recieved(void)
 {
-	return waks_inb(WAKS_COM1 + 5) & 0x01; // LSR Bit 0:  Data ready
+	return waks_bm_inb(WAKS_COM1 + 5) & 0x01; // LSR Bit 0:  Data ready
 }
 
 static inline void waks_serial_putc(waks_char c)
 {
     while (!waks_serial_transmit_empty());
-    waks_outb(WAKS_COM1, (waks_uchar)c);
+    waks_bm_outb(WAKS_COM1, (waks_uchar)c);
 }
 
 static inline waks_char waks_serial_getc(void) 
 {
     while (!waks_serial_recieved());
-    return (waks_char)waks_inb(WAKS_COM1);
+    return (waks_char)waks_bm_inb(WAKS_COM1);
 }
 
 // VGA
@@ -258,10 +268,10 @@ void waks_bm_exit(void)
 	waks_bm_write(1, msg, sizeof(msg) - 1);
 
 	// shut down qemu through the debug exit port exit 
-	waks_outw(0x604, 0x2000);
+	waks_bm_outw(0x604, 0x2000);
 
 	// qemu shutdown port fallback 
-	waks_outw(0xB004, 0x2000);
+	waks_bm_outw(0xB004, 0x2000);
 
 	// disable interupts and halt the cpu infinitely 
 	while(1) __asm__ volatile ("cli;hlt");

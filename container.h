@@ -171,8 +171,14 @@ struct waks_hash_map
 // this is the hash function implementation from the k33 algorithm 
 // from dan bernstein(djb2).
 waks_u64   waks_hstr_function(const waks_char *str);
+
+// this initialises the hashmap using the malloc(ie heap)
 void       waks_hm_init_malloc(waks_hash_map *m, waks_ssize capacity);
+
+// this initialises the hashmap using our arena
 void       waks_hm_init_arena(waks_arena *arena, waks_hash_map *m, waks_ssize capacity);
+
+// this insert an element: {key, value} to the hashmap
 void       waks_hm_insert(waks_hash_map *m, const waks_char *key, void *value);
 void       waks_hm_resize(waks_hash_map *m, waks_ssize capacity);
 void      *waks_hm_get(waks_hash_map *m, const waks_char *key);
@@ -302,6 +308,11 @@ Any *waks_array_list_get(waks_arena *arena, waks_array_list *vector, waks_usize 
     return ptr ? &ptr[index] : WAKS_NOVALUE;
 }
 
+// TODO(waks_cstd):
+// Revisit deferred handle lifetime semantics.
+// Currently using explicit/non-deferred borrowing here.
+// Investigate when and how deferred borrows should be released
+// and whether arena_reset() should be responsible for completing them.
 void *waks_array_list_get_raw(waks_arena *arena, waks_array_list *vector, waks_usize index)
 {
     if (index >= vector->length) return WAKS_NOVALUE;
@@ -326,31 +337,38 @@ void waks_array_list_push(waks_arena *arena, waks_array_list *vector, Any value)
 {
     waks_array_list_ensure_capacity(arena, vector, vector->length + 1);
 
-    WAKS_TEMP_ARENA (arena) {
-        WAKS_scoped_borrow(Any, data_ptr, vector->data, vector->user_id);
-        
-        // TODO(waks-work): implement proper panic or after failure case handling to
-        // ensure is is more secure
-        if (!data_ptr) return;
-        // PANIC_MSG("waks_array_list Push Failed: Handle Corruption or mismatch.");
-        data_ptr[vector->length] = value;
-        vector->length += 1;
-    }
+    Any *data_ptr = waks_handle_borrow_mut(arena, vector->data, vector->user_id);
+    if (!data_ptr) return;
+    data_ptr[vector->length] = value;
+    vector->length += 1;
+    waks_handle_release_mut(arena, vector->data);
 }
 
+// TODO(waks_cstd):
+// Investigate why the scoped-borrow path in this function fails on
+// subsequent borrows of the same array-list handle.
+//
+// Current workaround: use an explicit mutable borrow/release pair
+// instead of WAKS_TEMP_ARENA + WAKS_scoped_borrow.
+//
+// Questions to investigate:
+// - Does _raii_release_now() fully restore the handle borrow state?
+// - Is current_arena interacting incorrectly with cleanup callbacks?
+// - Are mutable borrows being released/deferred correctly?
+// - Should array-list internals use explicit handle lifetimes instead
+//   of the scoped-borrow abstraction?
 void waks_array_list_push_raw(waks_arena *arena, waks_array_list *vector, void *item)
 {
     if (!item) return;
 
     waks_array_list_ensure_capacity(arena, vector, vector->length + 1);
-    WAKS_TEMP_ARENA (arena) {
-        WAKS_scoped_borrow(waks_uchar, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr) return;
+    waks_uchar *data_ptr = waks_handle_borrow_mut(arena, vector->data, vector->user_id);
+    if (!data_ptr) return;
 
-        waks_uchar *dst = data_ptr + (vector->length * vector->item_size);
-        __builtin_memcpy(dst, item, vector->item_size);
-        vector->length += 1;
-    }
+    waks_uchar *dst = data_ptr + (vector->length * vector->item_size);
+    __builtin_memcpy(dst, item, vector->item_size);
+    vector->length += 1;
+    waks_handle_release_mut(arena, vector->data);
 }
 
 Any waks_array_list_pop(waks_arena *arena, waks_array_list *vector)
@@ -358,15 +376,14 @@ Any waks_array_list_pop(waks_arena *arena, waks_array_list *vector)
     if (vector->length == 0) return AnyNone();
     Any result = AnyNone();
 
-    WAKS_TEMP_ARENA (arena) {
-        WAKS_scoped_borrow(Any, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr) WAKS_PANIC_MSG("waks_array_list pop failed: Borrow denied");
-        if (data_ptr) {
-            vector->length -= 1;
-            result = data_ptr[vector->length];
-            // data_ptr[vector->length] = AnyNone();
-        }
+    Any *data_ptr = waks_handle_borrow_mut(arena, vector->data, vector->user_id);
+    if (!data_ptr) WAKS_PANIC_MSG("waks_array_list pop failed: Borrow denied");
+    if (data_ptr) {
+        vector->length -= 1;
+        result = data_ptr[vector->length];
+        // data_ptr[vector->length] = AnyNone();
     }
+    waks_handle_release_mut(arena, data_ptr);
     return result;
 }
 
@@ -382,37 +399,27 @@ void waks_array_list_insert(waks_arena *arena, waks_array_list *vector, waks_usi
     if (index > vector->length) index = vector->length;
     waks_array_list_ensure_capacity(arena, vector, vector->length + 1);
 
-    WAKS_TEMP_ARENA (arena) {
-         // TODO(waks-work): implement proper panic or after failure case handling to
-         // ensure is is more secure
-        WAKS_scoped_borrow(Any, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr) return; /// PANIC_MSG("Couldn't Insert: Failed to Borrow");
+    Any *data_ptr = waks_handle_borrow_mut(arena, vector->data, vector->user_id);
+    if (!data_ptr) return; /// PANIC_MSG("Couldn't Insert: Failed to Borrow");
 
-        for (waks_usize i = vector->length; i > index; i--)
-            data_ptr[i] = data_ptr[i - 1];
+    for (waks_usize i = vector->length; i > index; i--)
+        data_ptr[i] = data_ptr[i - 1];
 
-        data_ptr[index] = value;
-        vector->length += 1;
-    }
+    data_ptr[index] = value;
+    vector->length += 1;
+    waks_handle_release_mut(arena, data_ptr);
 }
 
-void waks_array_list_remove(waks_arena *arena, waks_array_list *vector, waks_usize index)
+void waks_array_list_remove(waks_arena *arena, waks_array_list *vector, waks_usize index) // no need for arena here
 {
     if (index >= vector->length) return;
+    Any *data_ptr = waks_handle_borrow_mut(arena, vector->data, vector->user_id);
+    if (!data_ptr) WAKS_PANIC_MSG("Couldn't Insert: Failed to Borrow");
 
-    WAKS_TEMP_ARENA (arena) {
-        WAKS_scoped_borrow(Any, data_ptr, vector->data, vector->user_id);
-        if (!data_ptr) WAKS_PANIC_MSG("Couldn't Insert: Failed to Borrow");
-
-        // @TODO(waks-work): check and fix the out of bounds bug/error
-        // ie use: waks_uchar *base = (waks_uchar *)data_ptr + (index * vector->item_size);
-        //         waks_uchar *next = base + vector->item_size;
-        //         waks_usize bytes_to_move = (vector->length - index - 1) * vector->item_size;
-        //         __builtin_memmove(base, next, bytes_to_move);
-        for (waks_usize i = index; i < vector->length - 1; i++)
-            data_ptr[i] = data_ptr[i + 1];
-        vector->length -= 1;
-    }
+    for (waks_usize i = index; i < vector->length - 1; i++)
+        data_ptr[i] = data_ptr[i + 1];
+    vector->length -= 1;
+    waks_handle_release_mut(arena, data_ptr); //vector->data);
 }
 
 void waks_array_list_clear(waks_array_list *vector)
@@ -429,19 +436,18 @@ void waks_array_list_ensure_capacity(waks_arena *arena, waks_array_list *vector,
 
     waks_handle new_handle = waks_box_alloc(arena, new_capacity * vector->item_size, vector->user_id);
     if (vector->length > 0) {
-        WAKS_TEMP_ARENA (arena) {
-            WAKS_scoped_borrow(Any, old_data, vector->data, vector->user_id);
+        Any *old_data = waks_handle_borrow_mut(arena, vector->data, vector->user_id);
 
-            // We don't use ScopeBorrow instead we use the raw HandleBorrowMut to
-            // prevent new_data from being cleared automatically at the end of the
-            // scope so we can clean it manually when we need to clean it up as expected.
-            // @TODO(): think of using waks_uchar* instead of Any *
-            Any *new_data = waks_handle_borrow_mut(arena, new_handle, vector->user_id);
-            if (old_data && new_data) {
-                __builtin_memcpy(new_data, old_data, (vector->length * vector->item_size));
-            }
-            waks_handle_release_mut(arena, new_handle); //vector->data);
+        // We don't use ScopeBorrow instead we use the raw HandleBorrowMut to
+        // prevent new_data from being cleared automatically at the end of the
+        // scope so we can clean it manually when we need to clean it up as expected.
+        // @TODO(): think of using waks_uchar* instead of Any *
+        Any *new_data = waks_handle_borrow_mut(arena, new_handle, vector->user_id);
+        if (old_data && new_data) {
+            __builtin_memcpy(new_data, old_data, (vector->length * vector->item_size));
         }
+        waks_handle_release_mut(arena, old_data); //vector->data);
+        waks_handle_release_mut(arena, new_handle); //vector->data);
     }
 
     vector->capacity = new_capacity;
